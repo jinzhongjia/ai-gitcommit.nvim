@@ -1,0 +1,706 @@
+*ai-gitcommit.txt*    AI-powered commit message generator for Neovim
+*ai-gitcommit*
+
+CONTENTS                                          *ai-gitcommit-contents*
+
+  1. Introduction ...................... |ai-gitcommit-intro|
+  2. Installation ...................... |ai-gitcommit-installation|
+  3. Configuration ..................... |ai-gitcommit-config|
+  4. Commands .......................... |ai-gitcommit-commands|
+  5. Usage ............................. |ai-gitcommit-usage|
+  6. Providers ......................... |ai-gitcommit-providers|
+  7. API ............................... |ai-gitcommit-api|
+  8. Examples .......................... |ai-gitcommit-examples|
+  9. Troubleshooting ................... |ai-gitcommit-troubleshooting|
+
+==============================================================================
+1. INTRODUCTION                                   *ai-gitcommit-intro*
+
+ai-gitcommit.nvim is a plugin that generates contextually relevant git commit
+messages using AI models. It supports multiple providers:
+
+  • OpenAI (GPT-4, GPT-4o-mini, etc.)
+  • Anthropic (Claude models)
+  • GitHub Copilot (OAuth-based)
+
+The plugin analyzes staged changes and generates commit messages in your
+preferred style (Conventional Commits or Simple) and language.
+
+Key Features:
+  • Streaming output for real-time message generation
+  • Multiple AI provider support
+  • OAuth authentication for GitHub Copilot
+  • Configurable file filtering (exclude lockfiles, minified files, etc.)
+  • Customizable commit styles and languages
+  • Context-aware message generation
+  • API key management via environment variables or functions
+
+Requirements:
+  • Neovim 0.11 or later
+  • Git
+  • API key for OpenAI or Anthropic (or Copilot authentication)
+
+==============================================================================
+2. INSTALLATION                                   *ai-gitcommit-installation*
+
+Using lazy.nvim: >
+
+  {
+    "your-username/ai-gitcommit.nvim",
+    event = "FileType gitcommit",
+    config = function()
+      require("ai-gitcommit").setup({
+        provider = "openai",
+      })
+    end,
+  }
+
+Using packer.nvim: >
+
+  use {
+    "your-username/ai-gitcommit.nvim",
+    ft = "gitcommit",
+    config = function()
+      require("ai-gitcommit").setup({
+        provider = "openai",
+      })
+    end,
+  }
+
+Using vim-plug: >
+
+  Plug "your-username/ai-gitcommit.nvim"
+
+Then in your init.vim or init.lua:
+>
+  lua require("ai-gitcommit").setup({ provider = "openai" })
+
+==============================================================================
+3. CONFIGURATION                                  *ai-gitcommit-config*
+
+The plugin is configured via the setup() function. All options are optional
+and have sensible defaults.
+
+Basic Setup: >
+
+  require("ai-gitcommit").setup({
+    provider = "openai",
+    language = "English",
+    commit_style = "conventional",
+  })
+
+All Configuration Options with Defaults: >
+
+  require("ai-gitcommit").setup({
+    -- AI Provider: "openai", "anthropic", or "copilot"
+    provider = "openai",
+
+    -- Provider-specific configurations
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+        api_key_cmd = nil,
+        model = "gpt-4o-mini",
+        endpoint = "https://api.openai.com/v1/chat/completions",
+        max_tokens = 500,
+      },
+
+      anthropic = {
+        api_key = vim.env.ANTHROPIC_API_KEY,
+        api_key_cmd = nil,
+        model = "claude-3-5-sonnet-20241022",
+        endpoint = "https://api.anthropic.com/v1/messages",
+        max_tokens = 500,
+      },
+
+      copilot = {
+        model = "gpt-4o",
+      },
+    },
+
+    -- Output language for commit messages
+    language = "English",
+
+    -- Commit style: "conventional" or "simple"
+    commit_style = "conventional",
+
+    -- Context and diff handling
+    context = {
+      max_diff_lines = 500,
+      max_diff_chars = 15000,
+    },
+
+    -- File filtering for the diff
+    filter = {
+      exclude_patterns = {
+        "%.lock$",
+        "package%-lock%.json$",
+        "yarn%.lock$",
+        "pnpm%-lock%.yaml$",
+        "%.min%.[jc]ss?$",
+        "%.map$",
+      },
+      exclude_paths = {},
+      include_only = nil,
+    },
+
+    -- Optional: set a keymap to generate commit message
+    keymap = nil,
+  })
+
+Configuration Options:
+
+  *ai-gitcommit-config-provider*
+  provider (string)
+    AI provider to use. Valid options: "openai", "anthropic", "copilot"
+    Default: "openai"
+
+  *ai-gitcommit-config-providers*
+  providers (table)
+    Provider-specific configuration. Nested structure with provider names as
+    keys.
+
+  providers.openai (table)
+    OpenAI-specific configuration:
+    • api_key (string or function) - OpenAI API key
+    • api_key_cmd (table) - Command to retrieve API key
+    • model (string) - Model name (default: "gpt-4o-mini")
+    • endpoint (string) - API endpoint
+    • max_tokens (number) - Maximum tokens in response (default: 500)
+
+  providers.anthropic (table)
+    Anthropic-specific configuration:
+    • api_key (string or function) - Anthropic API key
+    • api_key_cmd (table) - Command to retrieve API key
+    • model (string) - Model name (default: "claude-3-5-sonnet-20241022")
+    • endpoint (string) - API endpoint
+    • max_tokens (number) - Maximum tokens in response (default: 500)
+
+  providers.copilot (table)
+    GitHub Copilot-specific configuration:
+    • model (string) - Model name (default: "gpt-4o")
+    Note: Copilot uses OAuth, no API key configuration needed
+
+  *ai-gitcommit-config-language*
+  language (string)
+    Language for generated commit messages. Default: "English"
+    Can be any language, e.g., "French", "Spanish", "German", "Japanese"
+
+  *ai-gitcommit-config-commit-style*
+  commit_style (string)
+    Format for commit messages. Valid options:
+    • "conventional" - Follows Conventional Commits format
+    • "simple" - Plain language format
+    Default: "conventional"
+
+  *ai-gitcommit-config-context*
+  context (table)
+    Configuration for context handling:
+    • max_diff_lines (number) - Max lines in diff (default: 500)
+    • max_diff_chars (number) - Max characters in diff (default: 15000)
+
+  *ai-gitcommit-config-filter*
+  filter (table)
+    File filtering configuration:
+    • exclude_patterns (table) - Lua regex patterns to exclude files
+    • exclude_paths (table) - Paths to exclude
+    • include_only (table or nil) - Only include files matching these patterns
+
+  *ai-gitcommit-config-keymap*
+  keymap (string or nil)
+    Optional keybinding to generate commit messages. Default: nil
+    Example: "<leader>vc"
+
+==============================================================================
+4. COMMANDS                                       *ai-gitcommit-commands*
+
+:AICommit [{subcommand}] [{args}]               *:AICommit*
+  The only command you need. Supports subcommands for different operations.
+
+  Usage: >
+    :AICommit                       Generate commit message
+    :AICommit [context]             Generate with extra context
+    :AICommit login <provider>      OAuth login
+    :AICommit logout <provider>     OAuth logout
+    :AICommit status                Show OAuth status
+
+  Subcommands:
+
+  (none)                                        *:AICommit-generate*
+    Generate a commit message for staged changes.
+    Only works in gitcommit buffers (opened by `git commit`).
+    Example: >
+      :AICommit
+      :AICommit This fixes the login bug
+
+  login {provider}                              *:AICommit-login*
+    Authenticate with an OAuth-based provider.
+    Valid providers: copilot, codex, claude
+    Example: >
+      :AICommit login copilot
+
+  logout {provider}                             *:AICommit-logout*
+    Logout from an OAuth-based provider.
+    Example: >
+      :AICommit logout copilot
+
+  status                                        *:AICommit-status*
+    Display authentication status for all OAuth providers.
+
+==============================================================================
+5. USAGE                                         *ai-gitcommit-usage*
+
+Basic Workflow:
+
+  1. Stage your changes:
+       $ git add .
+
+  2. Start a commit:
+       $ git commit
+
+  3. In the commit message buffer, run:
+       :AICommit
+
+  4. The AI generates a commit message based on your changes
+
+  5. Edit the message if needed
+
+  6. Save and exit to complete the commit
+
+With Keybinding:
+
+  If you've configured a keymap (e.g., "<leader>vc"), you can generate
+  messages with a key combination instead of typing the command.
+
+  Example configuration:
+    require("ai-gitcommit").setup({ keymap = "<leader>vc" })
+
+  Then in a gitcommit buffer, press: <leader>vc
+
+With Additional Context:
+
+  You can provide additional context to guide the AI:
+>
+    :AICommit "This is a hotfix for the authentication issue"
+
+  The AI will consider this context when generating the message.
+
+Output Languages:
+
+  Generate commit messages in different languages by setting the language
+  option:
+
+    require("ai-gitcommit").setup({ language = "French" })
+    require("ai-gitcommit").setup({ language = "Spanish" })
+    require("ai-gitcommit").setup({ language = "German" })
+    require("ai-gitcommit").setup({ language = "Japanese" })
+
+Commit Styles:
+
+  Conventional Commits format (recommended for projects with semantic versioning):
+    require("ai-gitcommit").setup({ commit_style = "conventional" })
+    
+    Generates: "feat(auth): add OAuth support for GitHub Copilot"
+
+  Simple format (plain language):
+    require("ai-gitcommit").setup({ commit_style = "simple" })
+
+    Generates: "Add OAuth support for GitHub Copilot"
+
+==============================================================================
+6. PROVIDERS                                     *ai-gitcommit-providers*
+
+OpenAI Provider                                  *ai-gitcommit-provider-openai*
+
+  Setup:
+    1. Get an API key from https://platform.openai.com/account/api-keys
+    2. Configure in your init.lua:
+>
+  require("ai-gitcommit").setup({
+    provider = "openai",
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+        model = "gpt-4o-mini",
+      },
+    },
+  })
+
+    3. Set environment variable:
+       export OPENAI_API_KEY="sk-..."
+
+  Available Models:
+    • gpt-4o-mini - Fast and cost-effective (recommended)
+    • gpt-4o - Higher quality, more capable
+    • gpt-4 - Slower, highest quality
+    • gpt-3.5-turbo - Fast but lower quality
+
+Anthropic Provider                               *ai-gitcommit-provider-anthropic*
+
+  Setup:
+    1. Get an API key from https://console.anthropic.com/account/keys
+    2. Configure in your init.lua:
+>
+  require("ai-gitcommit").setup({
+    provider = "anthropic",
+    providers = {
+      anthropic = {
+        api_key = vim.env.ANTHROPIC_API_KEY,
+        model = "claude-3-5-sonnet-20241022",
+      },
+    },
+  })
+
+    3. Set environment variable:
+       export ANTHROPIC_API_KEY="sk-ant-..."
+
+  Available Models:
+    • claude-3-5-sonnet-20241022 - Recommended balance of speed and quality
+    • claude-3-opus-20240229 - Most capable but slower
+    • claude-3-haiku-20240307 - Fastest, lower cost
+
+GitHub Copilot Provider                         *ai-gitcommit-provider-copilot*
+
+  Copilot uses OAuth-based authentication - no API key needed.
+
+  Setup:
+    1. Configure in your init.lua:
+>
+  require("ai-gitcommit").setup({
+    provider = "copilot",
+    providers = {
+      copilot = {
+        model = "gpt-4o",
+      },
+    },
+  })
+
+    2. Authenticate when ready:
+       :AICommit login copilot
+
+    3. Check status:
+       :AICommit status
+
+API Key Configuration Methods                    *ai-gitcommit-api-key*
+
+  1. Environment Variable (Recommended):
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+      },
+    },
+  })
+
+     Set the environment variable: export OPENAI_API_KEY="sk-..."
+
+  2. Function:
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key = function()
+          return vim.fn.system("security find-generic-password -w -a openai")
+        end,
+      },
+    },
+  })
+
+  3. Command:
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key_cmd = { "pass", "show", "openai/api-key" },
+      },
+    },
+  })
+
+  4. Direct String (Not Recommended):
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key = "sk-...",
+      },
+    },
+  })
+
+==============================================================================
+7. API                                           *ai-gitcommit-api*
+
+Lua Functions
+
+require("ai-gitcommit").setup({opts})           *ai-gitcommit.setup()*
+  Initialize and configure the plugin.
+
+  Parameters:
+    {opts} (table, optional) - Configuration table (see |ai-gitcommit-config|)
+
+  Example:
+>
+  require("ai-gitcommit").setup({
+    provider = "openai",
+    language = "English",
+    commit_style = "conventional",
+  })
+
+require("ai-gitcommit").generate({extra_context}) *ai-gitcommit.generate()*
+  Manually trigger commit message generation.
+
+  Parameters:
+    {extra_context} (string, optional) - Additional context for the AI
+
+  Note: This is called automatically by the :AICommit command and is mainly
+  useful for keybindings or scripts.
+
+  Example:
+>
+  require("ai-gitcommit").generate("Fix for issue #123")
+
+==============================================================================
+8. EXAMPLES                                      *ai-gitcommit-examples*
+
+Minimal Setup with OpenAI:
+>
+  require("ai-gitcommit").setup({
+    provider = "openai",
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+      },
+    },
+  })
+
+Full Custom Setup:
+>
+  require("ai-gitcommit").setup({
+    provider = "openai",
+
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+        model = "gpt-4o",
+        max_tokens = 1000,
+      },
+      anthropic = {
+        api_key = vim.env.ANTHROPIC_API_KEY,
+        model = "claude-3-5-sonnet-20241022",
+      },
+    },
+
+    language = "English",
+    commit_style = "conventional",
+
+    context = {
+      max_diff_lines = 750,
+      max_diff_chars = 20000,
+    },
+
+    filter = {
+      exclude_patterns = {
+        "%.lock$",
+        "%.min%.[jc]ss?$",
+        "%.map$",
+        "node_modules/.*",
+      },
+    },
+
+    keymap = "<leader>vc",
+  })
+
+Using Multiple Providers:
+>
+  require("ai-gitcommit").setup({
+    provider = "openai",
+
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+        model = "gpt-4o-mini",
+      },
+      anthropic = {
+        api_key = vim.env.ANTHROPIC_API_KEY,
+        model = "claude-3-5-sonnet-20241022",
+      },
+      copilot = {
+        model = "gpt-4o",
+      },
+    },
+  })
+
+  Then switch between providers by changing the `provider` setting or
+  reconfiguring the plugin.
+
+French Commits with Anthropic:
+>
+  require("ai-gitcommit").setup({
+    provider = "anthropic",
+    language = "French",
+    commit_style = "conventional",
+    providers = {
+      anthropic = {
+        api_key = vim.env.ANTHROPIC_API_KEY,
+      },
+    },
+  })
+
+Custom File Filtering:
+>
+  require("ai-gitcommit").setup({
+    filter = {
+      exclude_patterns = {
+        "%.lock$",
+        "package%-lock%.json$",
+        "yarn%.lock$",
+        "pnpm%-lock%.yaml$",
+        "%.min%.[jc]ss?$",
+        "%.map$",
+        "%.tmp$",
+        "build/.*",
+      },
+      exclude_paths = {
+        "node_modules/",
+        "dist/",
+      },
+    },
+  })
+
+API Key from Password Manager:
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key_cmd = { "pass", "show", "services/openai/api-key" },
+      },
+    },
+  })
+
+==============================================================================
+9. TROUBLESHOOTING                               *ai-gitcommit-troubleshooting*
+
+"Not in a gitcommit buffer"
+
+  Problem: :AICommit command returns this error.
+
+  Solution: The :AICommit command only works when editing a git commit message.
+  Make sure you're in a buffer that was opened by `git commit`. Run:
+>
+    $ git commit
+    (then use :AICommit in the editor)
+
+"No API key configured"
+
+  Problem: Plugin reports no API key for your provider.
+
+  Solution: Ensure your API key is properly configured. Check:
+
+    1. Environment variable is set:
+       $ echo $OPENAI_API_KEY
+
+    2. Configuration includes the API key:
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+      },
+    },
+  })
+
+    3. Try a direct string temporarily to test:
+>
+  require("ai-gitcommit").setup({
+    providers = {
+      openai = {
+        api_key = "sk-...",
+      },
+    },
+  })
+
+"Not authenticated"
+
+  Problem: Copilot provider shows authentication error.
+
+  Solution: Authenticate with Copilot:
+>
+    :AICommit login copilot
+    :AICommit status
+
+"API request failed" or "Streaming not working"
+
+  Problem: Generation fails or output isn't streaming properly.
+
+  Solution:
+
+    1. Check network connectivity
+    2. Verify endpoint URL is correct in configuration
+    3. Check API key is valid for the endpoint
+    4. Review logs (if available):
+>
+    :messages
+
+"Provider not found"
+
+  Problem: Plugin reports provider not found.
+
+  Solution: Ensure provider name is valid. Supported providers:
+    • "openai"
+    • "anthropic"
+    • "copilot"
+
+  Check your configuration:
+>
+    require("ai-gitcommit").setup({
+      provider = "openai",  -- must be one of the above
+    })
+
+Streaming Takes Too Long
+
+  Problem: Commit message generation is slow.
+
+  Solution:
+
+    1. Use a faster model:
+       OpenAI: use "gpt-4o-mini" instead of "gpt-4o"
+       Anthropic: use "claude-3-haiku-20240307"
+
+    2. Reduce context size:
+>
+  require("ai-gitcommit").setup({
+    context = {
+      max_diff_chars = 10000,  -- reduce from 15000
+    },
+  })
+
+    3. Check network speed and API status
+
+Performance and Token Usage
+
+  To optimize costs and performance:
+
+    1. Exclude unnecessary files:
+>
+  require("ai-gitcommit").setup({
+    filter = {
+      exclude_patterns = { "%.lock$", "%.min%.[jc]ss?$" },
+    },
+  })
+
+    2. Limit context size:
+>
+  require("ai-gitcommit").setup({
+    context = {
+      max_diff_lines = 500,
+      max_diff_chars = 15000,
+    },
+  })
+
+    3. Use cost-effective models:
+       OpenAI: gpt-4o-mini is cheaper than gpt-4o
+       Anthropic: haiku is cheaper than sonnet
+
+==============================================================================
+
+ vim:tw=78:ts=8:ft=help:norl:
