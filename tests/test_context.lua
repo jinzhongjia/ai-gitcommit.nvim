@@ -25,7 +25,7 @@ T["should_exclude_file"] = new_set()
 
 T["should_exclude_file"]["returns true for matching pattern"] = function()
 	local patterns = { "%.lock$", "%.min%.js$" }
-	MiniTest.expect.equality(context.should_exclude_file("package-lock.json", patterns), true)
+	MiniTest.expect.equality(context.should_exclude_file("yarn.lock", patterns), true)
 	MiniTest.expect.equality(context.should_exclude_file("app.min.js", patterns), true)
 end
 
@@ -53,7 +53,7 @@ diff --git a/src/utils.lua b/src/utils.lua
 	}
 
 	local filtered = context.filter_diff(diff, cfg)
-	MiniTest.expect.no_equality(filtered:find("package%-lock"), nil)
+	MiniTest.expect.equality(filtered:find("package%-lock"), nil)
 	MiniTest.expect.equality(filtered:find("main.lua") ~= nil, true)
 	MiniTest.expect.equality(filtered:find("utils.lua") ~= nil, true)
 end

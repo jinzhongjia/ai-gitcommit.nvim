@@ -8,7 +8,7 @@ local function run_git(cmd, callback)
 	local stdout_pipe = uv.new_pipe()
 	local stdout_chunks = {}
 
-	local handle, pid = uv.spawn("git", {
+	local handle, _ = uv.spawn("git", {
 		args = cmd,
 		stdio = { nil, stdout_pipe, nil },
 	}, function(code)

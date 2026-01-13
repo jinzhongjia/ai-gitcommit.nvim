@@ -39,7 +39,7 @@ function M.request(opts, on_chunk, on_done, on_error)
 	local stderr_chunks = {}
 	local stdout_buffer = ""
 
-	local handle, pid = uv.spawn("curl", {
+	local handle, _ = uv.spawn("curl", {
 		args = args,
 		stdio = { nil, stdout, stderr },
 	}, function(code)
