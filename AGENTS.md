@@ -3,8 +3,8 @@
 ## After Every Code Change
 
 ```bash
-make lint   # 0 warnings / 0 errors
-make test   # All tests must pass
+mise run lint   # 0 warnings / 0 errors
+mise run test   # All tests must pass
 ```
 
 ## Technical Constraints
@@ -17,6 +17,7 @@ make test   # All tests must pass
 - **Type annotations**: Keep LuaLS annotations (`---@param`, `---@class`, etc.)
 - **Providers**: Only openai / anthropic / copilot
 - **Docs**: update doc/ai-gitcommit.txt and readme after code changes
+- **Compatibility**: Must work on Linux, macOS, Windows
 
 ### Forbidden
 
@@ -62,4 +63,4 @@ lua/ai-gitcommit/
 
 - Test files in `tests/test_*.lua`
 - Use `MiniTest.expect.equality()` for assertions
-- Run single test: `make test-file FILE=tests/test_config.lua`
+- Run single test: `mise run test-file tests/test_config.lua`
