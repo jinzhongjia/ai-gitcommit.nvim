@@ -14,6 +14,14 @@ local generated_buffers = {}
 local generating_buffers = {}
 local debounce_timers = {}
 
+local function has_api_key()
+	local api_key = config.get().api_key
+	if type(api_key) == "function" then
+		api_key = api_key()
+	end
+	return api_key ~= nil and api_key ~= ""
+end
+
 ---@param args string
 ---@return string?, string?
 local function parse_subcommand(args)
@@ -92,17 +100,9 @@ local function do_generate(language, extra_context, bufnr, silent)
 				diff = processed_diff,
 			})
 
-			auth.get_token(function(token_data, err)
-				if err then
-					generating_buffers[bufnr] = nil
-					if not silent then
-						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
-					end
-					return
-				end
-
+			local function run_generate(api_key)
 				local provider_config = config.get_provider()
-				provider_config.api_key = token_data.token
+				provider_config.api_key = api_key
 
 				local provider = providers.get()
 				local message = ""
@@ -124,7 +124,27 @@ local function do_generate(language, extra_context, bufnr, silent)
 						vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
 					end
 				end)
-			end)
+			end
+
+			local api_key = cfg.api_key
+			if type(api_key) == "function" then
+				api_key = api_key()
+			end
+
+			if api_key then
+				run_generate(api_key)
+			else
+				auth.get_token(function(token_data, err)
+					if err then
+						generating_buffers[bufnr] = nil
+						if not silent then
+							vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
+						end
+						return
+					end
+					run_generate(token_data.token)
+				end)
+			end
 		end)
 	end)
 end
@@ -201,7 +221,7 @@ function M.setup(opts)
 						return
 					end
 
-					if not auth.is_authenticated() then
+					if not has_api_key() and not auth.is_authenticated() then
 						return
 					end
 
@@ -244,7 +264,7 @@ function M.generate(extra_context)
 		return
 	end
 
-	if not auth.is_authenticated() then
+	if not has_api_key() and not auth.is_authenticated() then
 		vim.notify("Not authenticated. Run :AICommit login", vim.log.levels.WARN)
 		return
 	end

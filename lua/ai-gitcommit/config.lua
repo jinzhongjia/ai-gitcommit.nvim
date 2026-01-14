@@ -17,6 +17,7 @@
 ---@field debounce_ms? number
 
 ---@class AIGitCommit.Config
+---@field api_key? string|fun():string
 ---@field model string
 ---@field endpoint string
 ---@field max_tokens number
@@ -31,6 +32,7 @@ local M = {}
 
 ---@type AIGitCommit.Config
 local defaults = {
+	api_key = nil,
 	model = "claude-haiku-4-5",
 	endpoint = "https://api.anthropic.com/v1/messages",
 	max_tokens = 500,
