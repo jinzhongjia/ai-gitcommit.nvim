@@ -40,13 +40,4 @@ function M.set_commit_message(message, bufnr)
 	end
 end
 
----@param bufnr? number
----@return string
-function M.get_current_message(bufnr)
-	bufnr = bufnr or 0
-	local first_comment = M.find_first_comment_line(bufnr)
-	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, first_comment - 1, false)
-	return table.concat(lines, "\n")
-end
-
 return M

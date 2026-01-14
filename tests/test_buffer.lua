@@ -77,20 +77,4 @@ T["set_commit_message"]["sets message before comments"] = function()
 	helpers.cleanup_buffer(bufnr)
 end
 
-T["get_current_message"] = new_set()
-
-T["get_current_message"]["returns message before comments"] = function()
-	local bufnr = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
-		"fix: bug fix",
-		"",
-		"# Comment",
-	})
-
-	local msg = buffer.get_current_message(bufnr)
-	MiniTest.expect.equality(msg, "fix: bug fix\n")
-
-	helpers.cleanup_buffer(bufnr)
-end
-
 return T
