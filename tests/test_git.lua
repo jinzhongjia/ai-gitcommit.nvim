@@ -11,7 +11,19 @@ end
 T["is_git_repo"] = new_set()
 
 T["is_git_repo"]["returns true in git repository"] = function()
-	local result = git.is_git_repo()
+	local done = false
+	local result = nil
+
+	git.is_git_repo(function(is_repo)
+		result = is_repo
+		done = true
+	end)
+
+	vim.wait(1000, function()
+		return done
+	end)
+
+	MiniTest.expect.equality(done, true)
 	MiniTest.expect.equality(result, true)
 end
 

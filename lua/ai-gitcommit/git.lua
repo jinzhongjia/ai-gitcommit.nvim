@@ -78,36 +78,11 @@ function M.get_staged_files(callback)
 	end)
 end
 
----@return boolean
-function M.is_git_repo()
-	local stdout_pipe = uv.new_pipe()
-	if not stdout_pipe then
-		return false
-	end
-
-	local done = false
-	local result_code = 1
-
-	---@diagnostic disable-next-line: missing-fields
-	local handle = uv.spawn("git", {
-		args = { "rev-parse", "--git-dir" },
-		stdio = { nil, stdout_pipe, nil },
-	}, function(code)
-		stdout_pipe:close()
-		result_code = code
-		done = true
+---@param callback fun(is_repo: boolean)
+function M.is_git_repo(callback)
+	run_git({ "rev-parse", "--git-dir" }, function(_, code)
+		callback(code == 0)
 	end)
-
-	if not handle then
-		stdout_pipe:close()
-		return false
-	end
-
-	while not done do
-		uv.run("once")
-	end
-
-	return result_code == 0
 end
 
 ---@param callback fun(root: string?)
