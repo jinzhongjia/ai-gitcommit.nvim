@@ -53,6 +53,18 @@ local defaults = {
 			"pnpm%-lock%.yaml$",
 			"%.min%.[jc]ss?$",
 			"%.map$",
+			-- Proto generated files
+			"%.pb%.go$",
+			"_grpc%.pb%.go$",
+			"%.pb%.cc$",
+			"%.pb%.h$",
+			"_pb2%.py$",
+			"_pb2_grpc%.py$",
+			-- GORM gen generated files
+			"%.gen%.go$",
+			-- Connect RPC generated files
+			"%.connect%.go$",
+			"_connect%.ts$",
 		},
 		exclude_paths = {},
 		include_only = nil,
