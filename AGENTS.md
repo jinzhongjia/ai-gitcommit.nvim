@@ -16,6 +16,7 @@ make test   # All tests must pass
 - **Test framework**: mini.test, not plenary
 - **Type annotations**: Keep LuaLS annotations (`---@param`, `---@class`, etc.)
 - **Providers**: Only openai / anthropic / copilot
+- **Docs**: update doc/ai-gitcommit.txt and readme after code changes
 
 ### Forbidden
 
