@@ -16,7 +16,7 @@
 ---@field model string
 ---@field endpoint string
 ---@field max_tokens number
----@field language string
+---@field languages string[]
 ---@field commit_style string
 ---@field context AIGitCommit.ContextConfig
 ---@field filter AIGitCommit.FilterConfig
@@ -30,7 +30,7 @@ local defaults = {
 	endpoint = "https://api.anthropic.com/v1/messages",
 	max_tokens = 500,
 
-	language = "English",
+	languages = { "English", "Chinese", "Japanese", "Korean" },
 	commit_style = "conventional",
 
 	context = {

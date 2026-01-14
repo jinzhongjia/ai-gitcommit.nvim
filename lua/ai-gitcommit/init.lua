@@ -94,18 +94,9 @@ function M.setup(opts)
 	end
 end
 
+---@param language string
 ---@param extra_context? string
-function M.generate(extra_context)
-	if not buffer.is_gitcommit_buffer() then
-		vim.notify("Not in a gitcommit buffer", vim.log.levels.WARN)
-		return
-	end
-
-	if not auth.is_authenticated() then
-		vim.notify("Not authenticated. Run :AICommit login", vim.log.levels.WARN)
-		return
-	end
-
+local function do_generate(language, extra_context)
 	vim.notify("Generating commit message...", vim.log.levels.INFO)
 
 	git.get_staged_diff(function(diff)
@@ -120,7 +111,7 @@ function M.generate(extra_context)
 
 			local final_prompt = prompt.build({
 				style = cfg.commit_style,
-				language = cfg.language,
+				language = language,
 				extra_context = extra_context,
 				files = files,
 				diff = processed_diff,
@@ -148,6 +139,33 @@ function M.generate(extra_context)
 				end)
 			end)
 		end)
+	end)
+end
+
+---@param extra_context? string
+function M.generate(extra_context)
+	if not buffer.is_gitcommit_buffer() then
+		vim.notify("Not in a gitcommit buffer", vim.log.levels.WARN)
+		return
+	end
+
+	if not auth.is_authenticated() then
+		vim.notify("Not authenticated. Run :AICommit login", vim.log.levels.WARN)
+		return
+	end
+
+	local languages = config.get().languages
+
+	if #languages == 1 then
+		do_generate(languages[1], extra_context)
+		return
+	end
+
+	vim.ui.select(languages, { prompt = "Select language:" }, function(choice)
+		if not choice then
+			return
+		end
+		do_generate(choice, extra_context)
 	end)
 end
 
