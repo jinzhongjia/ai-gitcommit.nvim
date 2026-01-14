@@ -4,7 +4,8 @@ local M = {}
 ---@return boolean
 function M.is_gitcommit_buffer(bufnr)
 	bufnr = bufnr or 0
-	return vim.bo[bufnr].filetype == "gitcommit"
+	local ft = vim.api.nvim_get_option_value("filetype", { buf = bufnr })
+	return ft == "gitcommit"
 end
 
 ---@param bufnr? number
