@@ -284,6 +284,18 @@ local function create_api_key(access_token, callback)
 	end)
 end
 
+local function open_browser(url)
+	---@diagnostic disable: missing-fields
+	if vim.fn.has("mac") == 1 then
+		uv.spawn("open", { args = { url } }, function() end)
+	elseif IS_WINDOWS then
+		uv.spawn("cmd", { args = { "/c", "start", "", url } }, function() end)
+	else
+		uv.spawn("xdg-open", { args = { url } }, function() end)
+	end
+	---@diagnostic enable: missing-fields
+end
+
 ---@param callback fun(data: table?, err: string?)
 function M.login(callback)
 	math.randomseed(os.time())
@@ -296,7 +308,7 @@ function M.login(callback)
 		vim.log.levels.INFO
 	)
 
-	vim.ui.open(auth_url)
+    open_browser(auth_url)
 
 	vim.schedule(function()
 		vim.ui.input({ prompt = "Paste authorization code: " }, function(code)
