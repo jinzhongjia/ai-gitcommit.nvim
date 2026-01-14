@@ -43,8 +43,8 @@ require("ai-gitcommit").setup({
   model = "claude-haiku-4-5",
   endpoint = "https://api.anthropic.com/v1/messages",
   max_tokens = 500,
-  language = "English",
-  commit_style = "conventional", -- "conventional" | "simple"
+  languages = { "English", "Chinese", "Japanese", "Korean" },
+  prompt_template = nil, -- custom prompt template (optional)
   keymap = nil, -- e.g. "<leader>gc"
   context = {
     max_diff_lines = 500,
@@ -56,6 +56,34 @@ require("ai-gitcommit").setup({
   },
 })
 ```
+
+### Custom Prompt Template
+
+You can customize the prompt template using placeholders:
+
+```lua
+require("ai-gitcommit").setup({
+  prompt_template = [[
+Generate a commit message for these changes.
+Write in {language}. Be concise.
+
+{extra_context}
+
+Files: {staged_files}
+
+Diff:
+{diff}
+
+Respond with ONLY the commit message.
+]]
+})
+```
+
+Available placeholders:
+- `{language}` - Selected language
+- `{extra_context}` - User-provided context
+- `{staged_files}` - List of staged files
+- `{diff}` - Git diff content
 
 ## License
 

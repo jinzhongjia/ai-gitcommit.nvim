@@ -11,9 +11,8 @@ end
 
 T["build"] = new_set()
 
-T["build"]["generates conventional commit prompt"] = function()
+T["build"]["generates default commit prompt"] = function()
 	local result = prompt.build({
-		style = "conventional",
 		language = "English",
 		diff = helpers.get_sample_diff(),
 		files = { { status = "M", file = "src/main.lua" } },
@@ -23,20 +22,34 @@ T["build"]["generates conventional commit prompt"] = function()
 	MiniTest.expect.equality(result:find("src/main.lua") ~= nil, true)
 end
 
-T["build"]["generates simple prompt"] = function()
+T["build"]["uses custom string template when provided"] = function()
 	local result = prompt.build({
-		style = "simple",
+		template = "Custom: {language} {diff}",
 		language = "English",
 		diff = "test diff",
 		files = {},
 	})
 
-	MiniTest.expect.equality(result:find("simple git commit message") ~= nil, true)
+	MiniTest.expect.equality(result:find("Custom:") ~= nil, true)
+	MiniTest.expect.equality(result:find("test diff") ~= nil, true)
+end
+
+T["build"]["uses custom function template when provided"] = function()
+	local result = prompt.build({
+		template = function(default)
+			return default .. "\n\nALWAYS_USE_EMOJI"
+		end,
+		language = "English",
+		diff = "test diff",
+		files = {},
+	})
+
+	MiniTest.expect.equality(result:find("Conventional Commits") ~= nil, true)
+	MiniTest.expect.equality(result:find("ALWAYS_USE_EMOJI") ~= nil, true)
 end
 
 T["build"]["includes language"] = function()
 	local result = prompt.build({
-		style = "conventional",
 		language = "Chinese",
 		diff = "test",
 		files = {},
@@ -47,7 +60,6 @@ end
 
 T["build"]["includes extra context when provided"] = function()
 	local result = prompt.build({
-		style = "conventional",
 		language = "English",
 		extra_context = "This fixes the login bug",
 		diff = "test",
@@ -59,7 +71,6 @@ end
 
 T["build"]["handles missing extra context"] = function()
 	local result = prompt.build({
-		style = "conventional",
 		language = "English",
 		diff = "test",
 		files = {},
@@ -68,25 +79,10 @@ T["build"]["handles missing extra context"] = function()
 	MiniTest.expect.equality(result:find("Additional context") == nil, true)
 end
 
-T["build"]["falls back to conventional for unknown style"] = function()
-	local result = prompt.build({
-		style = "unknown",
-		language = "English",
-		diff = "test",
-		files = {},
-	})
+T["default_template"] = new_set()
 
-	MiniTest.expect.equality(result:find("Conventional Commits") ~= nil, true)
-end
-
-T["templates"] = new_set()
-
-T["templates"]["has conventional template"] = function()
-	MiniTest.expect.equality(prompt.templates.conventional ~= nil, true)
-end
-
-T["templates"]["has simple template"] = function()
-	MiniTest.expect.equality(prompt.templates.simple ~= nil, true)
+T["default_template"]["exists"] = function()
+	MiniTest.expect.equality(prompt.default_template ~= nil, true)
 end
 
 return T

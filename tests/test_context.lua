@@ -76,12 +76,12 @@ T["build_context"] = new_set()
 
 T["build_context"]["filters and truncates"] = function()
 	local diff = helpers.get_sample_diff()
-	local files = {}
-	local cfg = helpers.get_test_config()
-	cfg.filter = { exclude_patterns = {} }
-	cfg.context = { max_diff_chars = 50000 }
+	local cfg = helpers.get_test_config({
+		filter = { exclude_patterns = {} },
+		context = { max_diff_chars = 50000 },
+	})
 
-	local result = context.build_context(diff, files, cfg)
+	local result = context.build_context(diff, cfg)
 	MiniTest.expect.equality(type(result), "string")
 	MiniTest.expect.equality(#result > 0, true)
 end

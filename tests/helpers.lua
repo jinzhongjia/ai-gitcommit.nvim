@@ -9,11 +9,16 @@ function M.get_test_config(opts)
 			openai = { model = "gpt-4o-mini" },
 			anthropic = { model = "claude-sonnet-4-20250514" },
 		},
-		language = "en",
-		commit_style = "conventional",
-		max_diff_lines = 500,
-		max_diff_size = 32000,
-		filter_patterns = {},
+		languages = { "English" },
+		prompt_template = nil,
+		context = {
+			max_diff_lines = 500,
+			max_diff_chars = 15000,
+		},
+		filter = {
+			exclude_patterns = {},
+			exclude_paths = {},
+		},
 		keymap = nil,
 	}, opts or {})
 end

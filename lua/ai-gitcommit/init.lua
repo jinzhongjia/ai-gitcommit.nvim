@@ -90,10 +90,10 @@ local function do_generate(language, extra_context, bufnr, silent)
 			end
 
 			local cfg = config.get()
-			local processed_diff = context.build_context(diff, files, cfg)
+			local processed_diff = context.build_context(diff, cfg)
 
 			local final_prompt = prompt.build({
-				style = cfg.commit_style,
+				template = cfg.prompt_template,
 				language = language,
 				extra_context = extra_context,
 				files = files,

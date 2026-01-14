@@ -22,7 +22,7 @@
 ---@field endpoint string
 ---@field max_tokens number
 ---@field languages string[]
----@field commit_style string
+---@field prompt_template? string|fun(default_prompt: string): string
 ---@field context AIGitCommit.ContextConfig
 ---@field filter AIGitCommit.FilterConfig
 ---@field keymap? string
@@ -38,7 +38,7 @@ local defaults = {
 	max_tokens = 500,
 
 	languages = { "English", "Chinese", "Japanese", "Korean" },
-	commit_style = "conventional",
+	prompt_template = nil,
 
 	context = {
 		max_diff_lines = 500,

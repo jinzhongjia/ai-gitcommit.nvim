@@ -13,7 +13,7 @@ T["setup"]["applies default config"] = function()
 	local cfg = config.get()
 	MiniTest.expect.equality(cfg.model, "claude-haiku-4-5")
 	MiniTest.expect.equality(cfg.languages[1], "English")
-	MiniTest.expect.equality(cfg.commit_style, "conventional")
+	MiniTest.expect.equality(cfg.prompt_template, nil)
 end
 
 T["setup"]["merges user config"] = function()
@@ -28,7 +28,6 @@ T["setup"]["merges user config"] = function()
 	MiniTest.expect.equality(cfg.model, "claude-sonnet-4-20250514")
 	MiniTest.expect.equality(cfg.languages[1], "Chinese")
 	MiniTest.expect.equality(cfg.languages[2], "English")
-	MiniTest.expect.equality(cfg.commit_style, "conventional")
 end
 
 T["get_provider"] = new_set()

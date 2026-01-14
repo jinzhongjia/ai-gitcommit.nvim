@@ -36,23 +36,40 @@ AI 驱动的 Neovim git commit 信息生成器。
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "openai",
-  providers = {
-    openai = {
-      api_key = vim.env.OPENAI_API_KEY,
-      model = "gpt-4o-mini",
-    },
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-      model = "claude-3-5-sonnet-20241022",
-    },
-    copilot = {
-      model = "gpt-4o",
-    },
-  },
-  language = "Chinese", -- 输出语言
-  commit_style = "conventional", -- "conventional" | "simple"
+  model = "claude-haiku-4-5",
+  endpoint = "https://api.anthropic.com/v1/messages",
+  max_tokens = 500,
+  languages = { "Chinese", "English" }, -- 支持的语言
+  prompt_template = nil, -- 自定义 prompt 模板（可选）
   keymap = nil, -- 如 "<leader>gc"
+  context = {
+    max_diff_lines = 500,
+    max_diff_chars = 15000,
+  },
+  filter = {
+    exclude_patterns = { "%.lock$", "package%-lock%.json$" },
+    exclude_paths = {},
+  },
+})
+```
+
+### 自定义 Prompt 模板
+
+```lua
+require("ai-gitcommit").setup({
+  prompt_template = [[
+为以下更改生成 commit message。
+使用 {language} 语言，简洁明了。
+
+{extra_context}
+
+文件: {staged_files}
+
+Diff:
+{diff}
+
+只输出 commit message，不要解释。
+]]
 })
 ```
 

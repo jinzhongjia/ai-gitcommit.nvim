@@ -1,7 +1,6 @@
 local M = {}
 
-M.templates = {
-	conventional = [[
+M.default_template = [[
 Generate a git commit message for the following changes.
 
 Requirements:
@@ -22,27 +21,10 @@ Diff:
 {diff}
 ```
 
-Respond with ONLY the commit message, no explanation or markdown formatting.]],
-
-	simple = [[
-Generate a simple git commit message for these changes.
-Write in {language}. Keep it under 72 characters.
-
-{extra_context}
-
-Changes:
-{staged_files}
-
-Diff:
-```diff
-{diff}
-```
-
-Respond with ONLY the commit message.]],
-}
+Respond with ONLY the commit message, no explanation or markdown formatting.]]
 
 ---@class AIGitCommit.PromptOptions
----@field style string
+---@field template? string|fun(default_prompt: string): string
 ---@field language string
 ---@field extra_context? string
 ---@field files AIGitCommit.StagedFile[]
@@ -51,7 +33,12 @@ Respond with ONLY the commit message.]],
 ---@param opts AIGitCommit.PromptOptions
 ---@return string
 function M.build(opts)
-	local template = M.templates[opts.style] or M.templates.conventional
+	local template
+	if type(opts.template) == "function" then
+		template = opts.template(M.default_template)
+	else
+		template = opts.template or M.default_template
+	end
 
 	local staged_files_str = ""
 	for _, file in ipairs(opts.files or {}) do
@@ -63,11 +50,10 @@ function M.build(opts)
 		extra = string.format("Additional context from user: %s\n", opts.extra_context)
 	end
 
-	return template
-		:gsub("{language}", opts.language or "English")
+	return (template:gsub("{language}", opts.language or "English")
 		:gsub("{extra_context}", extra)
 		:gsub("{staged_files}", staged_files_str)
-		:gsub("{diff}", opts.diff or "")
+		:gsub("{diff}", opts.diff or ""))
 end
 
 return M

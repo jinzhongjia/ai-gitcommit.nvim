@@ -24,14 +24,14 @@ messages using AI models. It supports multiple providers:
   • GitHub Copilot (OAuth-based)
 
 The plugin analyzes staged changes and generates commit messages in your
-preferred style (Conventional Commits or Simple) and language.
+preferred language with customizable prompt templates.
 
 Key Features:
   • Streaming output for real-time message generation
   • Multiple AI provider support
   • OAuth authentication for GitHub Copilot
   • Configurable file filtering (exclude lockfiles, minified files, etc.)
-  • Customizable commit styles and languages
+  • Customizable prompt templates and languages
   • Context-aware message generation
   • API key management via environment variables or functions
 
@@ -84,9 +84,7 @@ and have sensible defaults.
 Basic Setup: >
 
   require("ai-gitcommit").setup({
-    provider = "openai",
-    language = "English",
-    commit_style = "conventional",
+    languages = { "English" },
   })
 
 All Configuration Options with Defaults: >
@@ -118,11 +116,11 @@ All Configuration Options with Defaults: >
       },
     },
 
-    -- Output language for commit messages
-    language = "English",
+    -- Available languages for commit messages
+    languages = { "English", "Chinese", "Japanese", "Korean" },
 
-    -- Commit style: "conventional" or "simple"
-    commit_style = "conventional",
+    -- Custom prompt template (optional, uses default if nil)
+    prompt_template = nil,
 
     -- Context and diff handling
     context = {
@@ -181,17 +179,22 @@ Configuration Options:
     • model (string) - Model name (default: "gpt-4o")
     Note: Copilot uses OAuth, no API key configuration needed
 
-  *ai-gitcommit-config-language*
-  language (string)
-    Language for generated commit messages. Default: "English"
-    Can be any language, e.g., "French", "Spanish", "German", "Japanese"
+  *ai-gitcommit-config-languages*
+  languages (table)
+    Available languages for commit messages.
+    Default: { "English", "Chinese", "Japanese", "Korean" }
+    User can select from this list when generating.
 
-  *ai-gitcommit-config-commit-style*
-  commit_style (string)
-    Format for commit messages. Valid options:
-    • "conventional" - Follows Conventional Commits format
-    • "simple" - Plain language format
-    Default: "conventional"
+  *ai-gitcommit-config-prompt-template*
+  prompt_template (string or nil)
+    Custom prompt template for generating commit messages.
+    Default: nil (uses built-in template)
+    
+    Available placeholders:
+    • {language} - Selected language
+    • {extra_context} - User-provided context
+    • {staged_files} - List of staged files with status
+    • {diff} - Git diff content
 
   *ai-gitcommit-config-context*
   context (table)
@@ -287,25 +290,33 @@ With Additional Context:
 
 Output Languages:
 
-  Generate commit messages in different languages by setting the language
-  option:
+  Configure available languages for commit message generation:
 
-    require("ai-gitcommit").setup({ language = "French" })
-    require("ai-gitcommit").setup({ language = "Spanish" })
-    require("ai-gitcommit").setup({ language = "German" })
-    require("ai-gitcommit").setup({ language = "Japanese" })
+    require("ai-gitcommit").setup({ 
+      languages = { "English", "French", "Spanish", "German", "Japanese" }
+    })
 
-Commit Styles:
+  When generating, user can select from the configured languages.
 
-  Conventional Commits format (recommended for projects with semantic versioning):
-    require("ai-gitcommit").setup({ commit_style = "conventional" })
-    
-    Generates: "feat(auth): add OAuth support for GitHub Copilot"
+Custom Prompt Template:
 
-  Simple format (plain language):
-    require("ai-gitcommit").setup({ commit_style = "simple" })
+  Customize how the AI generates commit messages:
+>
+    require("ai-gitcommit").setup({
+      prompt_template = [[
+Generate a commit message for these changes.
+Write in {language}. Be concise.
 
-    Generates: "Add OAuth support for GitHub Copilot"
+{extra_context}
+
+Files: {staged_files}
+
+Diff:
+{diff}
+
+Respond with ONLY the commit message.
+]]
+    })
 
 ==============================================================================
 6. PROVIDERS                                     *ai-gitcommit-providers*
@@ -441,9 +452,8 @@ require("ai-gitcommit").setup({opts})           *ai-gitcommit.setup()*
   Example:
 >
   require("ai-gitcommit").setup({
-    provider = "openai",
-    language = "English",
-    commit_style = "conventional",
+    languages = { "English", "Chinese" },
+    prompt_template = nil,
   })
 
 require("ai-gitcommit").generate({extra_context}) *ai-gitcommit.generate()*
@@ -490,8 +500,8 @@ Full Custom Setup:
       },
     },
 
-    language = "English",
-    commit_style = "conventional",
+    languages = { "English" },
+    prompt_template = nil,
 
     context = {
       max_diff_lines = 750,
@@ -536,14 +546,7 @@ Using Multiple Providers:
 French Commits with Anthropic:
 >
   require("ai-gitcommit").setup({
-    provider = "anthropic",
-    language = "French",
-    commit_style = "conventional",
-    providers = {
-      anthropic = {
-        api_key = vim.env.ANTHROPIC_API_KEY,
-      },
-    },
+    languages = { "French", "English" },
   })
 
 Custom File Filtering:
