@@ -59,10 +59,9 @@ function M.truncate_diff(diff, max_chars)
 end
 
 ---@param diff string
----@param files AIGitCommit.StagedFile[]
 ---@param config AIGitCommit.Config
 ---@return string
-function M.build_context(diff, files, config)
+function M.build_context(diff, config)
 	local filtered = M.filter_diff(diff, config)
 	return M.truncate_diff(filtered, config.context.max_diff_chars)
 end
