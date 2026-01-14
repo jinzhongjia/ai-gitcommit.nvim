@@ -1,12 +1,12 @@
 # ai-gitcommit.nvim
 
-AI-powered git commit message generator for Neovim.
+AI-powered git commit message generator for Neovim using Anthropic Claude.
 
 ## Requirements
 
 - Neovim 0.11+
 - curl
-- API key (OpenAI/Anthropic) or GitHub Copilot
+- Anthropic account (free tier available)
 
 ## Installation
 
@@ -15,19 +15,24 @@ AI-powered git commit message generator for Neovim.
 {
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
-  opts = {
-    provider = "openai", -- "openai" | "anthropic" | "copilot"
-  },
+  opts = {},
 }
 ```
+
+## Setup
+
+1. Install the plugin
+2. Run `:AICommit login` to authenticate with Anthropic
+3. Stage your changes with `git add`
+4. Run `git commit` and use `:AICommit` to generate a message
 
 ## Usage
 
 ```vim
 :AICommit                       " Generate commit message
 :AICommit [context]             " Generate with extra context
-:AICommit login copilot         " OAuth login
-:AICommit logout copilot        " OAuth logout
+:AICommit login                 " OAuth login to Anthropic
+:AICommit logout                " Logout from Anthropic
 :AICommit status                " Show auth status
 ```
 
@@ -35,27 +40,22 @@ AI-powered git commit message generator for Neovim.
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "openai",
-  providers = {
-    openai = {
-      api_key = vim.env.OPENAI_API_KEY,
-      model = "gpt-4o-mini",
-    },
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-      model = "claude-3-5-sonnet-20241022",
-    },
-    copilot = {
-      model = "gpt-4o",
-    },
-  },
+  model = "claude-haiku-4-5",
+  endpoint = "https://api.anthropic.com/v1/messages",
+  max_tokens = 500,
   language = "English",
   commit_style = "conventional", -- "conventional" | "simple"
   keymap = nil, -- e.g. "<leader>gc"
+  context = {
+    max_diff_lines = 500,
+    max_diff_chars = 15000,
+  },
+  filter = {
+    exclude_patterns = { "%.lock$", "package%-lock%.json$" },
+    exclude_paths = {},
+  },
 })
 ```
-
-See `:help ai-gitcommit` for full documentation.
 
 ## License
 

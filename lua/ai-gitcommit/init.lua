@@ -4,6 +4,7 @@ local buffer = require("ai-gitcommit.buffer")
 local context = require("ai-gitcommit.context")
 local prompt = require("ai-gitcommit.prompt")
 local providers = require("ai-gitcommit.providers")
+local auth = require("ai-gitcommit.auth")
 
 local M = {}
 
@@ -28,57 +29,25 @@ local function parse_subcommand(args)
 	return nil, args
 end
 
----@param provider_name string
-local function do_login(provider_name)
-	if not provider_name or provider_name == "" then
-		vim.notify("Usage: :AICommit login <provider>", vim.log.levels.ERROR)
-		return
-	end
-
-	local auth = require("ai-gitcommit.auth")
-	if not auth.supports_oauth(provider_name) then
-		vim.notify(provider_name .. " does not support OAuth login", vim.log.levels.INFO)
-		return
-	end
-
-	vim.notify("Starting OAuth flow for " .. provider_name .. "...", vim.log.levels.INFO)
-	auth.login(provider_name, function(success, err)
+local function do_login()
+	vim.notify("Starting Anthropic OAuth flow...", vim.log.levels.INFO)
+	auth.login(function(success, err)
 		if success then
-			vim.notify("Logged in to " .. provider_name, vim.log.levels.INFO)
+			vim.notify("Logged in to Anthropic", vim.log.levels.INFO)
 		else
 			vim.notify("Login failed: " .. (err or "unknown"), vim.log.levels.ERROR)
 		end
 	end)
 end
 
----@param provider_name string
-local function do_logout(provider_name)
-	if not provider_name or provider_name == "" then
-		vim.notify("Usage: :AICommit logout <provider>", vim.log.levels.ERROR)
-		return
-	end
-
-	local auth = require("ai-gitcommit.auth")
-	if not auth.supports_oauth(provider_name) then
-		vim.notify(provider_name .. " does not support OAuth", vim.log.levels.INFO)
-		return
-	end
-
-	auth.logout(provider_name)
-	vim.notify("Logged out from " .. provider_name, vim.log.levels.INFO)
+local function do_logout()
+	auth.logout()
+	vim.notify("Logged out from Anthropic", vim.log.levels.INFO)
 end
 
 local function do_status()
-	local auth = require("ai-gitcommit.auth")
-	local oauth_providers = { "copilot", "codex", "anthropic" }
-	local lines = { "OAuth Status:" }
-
-	for _, name in ipairs(oauth_providers) do
-		local status = auth.is_authenticated(name) and "authenticated" or "not authenticated"
-		table.insert(lines, string.format("  %s: %s", name, status))
-	end
-
-	vim.notify(table.concat(lines, "\n"), vim.log.levels.INFO)
+	local status = auth.is_authenticated() and "authenticated" or "not authenticated"
+	vim.notify("Anthropic: " .. status, vim.log.levels.INFO)
 end
 
 ---@param opts? AIGitCommit.Config
@@ -89,9 +58,9 @@ function M.setup(opts)
 		local sub, arg = parse_subcommand(cmd_opts.args)
 
 		if sub == "login" then
-			do_login(arg)
+			do_login()
 		elseif sub == "logout" then
-			do_logout(arg)
+			do_logout()
 		elseif sub == "status" then
 			do_status()
 		else
@@ -102,9 +71,7 @@ function M.setup(opts)
 		complete = function(_, line)
 			local parts = vim.split(line, "%s+", { trimempty = true })
 			if #parts == 1 then
-				return vim.list_extend({ "login", "logout", "status" }, {})
-			elseif #parts == 2 and (parts[2] == "login" or parts[2] == "logout") then
-				return { "copilot", "codex", "anthropic" }
+				return { "login", "logout", "status" }
 			elseif #parts == 2 then
 				local matches = {}
 				for _, sub in ipairs(subcommands) do
@@ -134,20 +101,8 @@ function M.generate(extra_context)
 		return
 	end
 
-	local cfg = config.get()
-	local provider_name = cfg.provider
-	local provider = providers.get(provider_name)
-
-	if not provider then
-		vim.notify("Provider not found: " .. provider_name, vim.log.levels.ERROR)
-		return
-	end
-
-	local auth = require("ai-gitcommit.auth")
-	local use_oauth = auth.is_authenticated(provider_name)
-
-	if not use_oauth and config.requires_oauth(provider_name) then
-		vim.notify("Not authenticated. Run :AICommit login " .. provider_name, vim.log.levels.WARN)
+	if not auth.is_authenticated() then
+		vim.notify("Not authenticated. Run :AICommit login", vim.log.levels.WARN)
 		return
 	end
 
@@ -160,6 +115,7 @@ function M.generate(extra_context)
 				return
 			end
 
+			local cfg = config.get()
 			local processed_diff = context.build_context(diff, files, cfg)
 
 			local final_prompt = prompt.build({
@@ -170,39 +126,27 @@ function M.generate(extra_context)
 				diff = processed_diff,
 			})
 
-			local function do_generate(provider_config)
+			auth.get_token(function(token_data, err)
+				if err then
+					vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
+					return
+				end
+
+				local provider_config = config.get_provider()
+				provider_config.api_key = token_data.token
+
+				local provider = providers.get()
 				local message = ""
+
 				provider.generate(final_prompt, provider_config, function(chunk)
 					message = message .. chunk
 					buffer.set_commit_message(message)
 				end, function()
 					vim.notify("Commit message generated!", vim.log.levels.INFO)
-				end, function(err)
-					vim.notify("Error: " .. err, vim.log.levels.ERROR)
+				end, function(gen_err)
+					vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
 				end)
-			end
-
-			if use_oauth then
-				auth.get_token(provider_name, function(token_data, err)
-					if err then
-						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
-						return
-					end
-					local provider_config = config.get_provider()
-					provider_config.api_key = token_data.token
-					do_generate(provider_config)
-				end)
-			else
-				config.get_api_key(provider_name, function(api_key, err)
-					if err then
-						vim.notify("API key error: " .. err, vim.log.levels.ERROR)
-						return
-					end
-					local provider_config = config.get_provider()
-					provider_config.api_key = api_key
-					do_generate(provider_config)
-				end)
-			end
+			end)
 		end)
 	end)
 end

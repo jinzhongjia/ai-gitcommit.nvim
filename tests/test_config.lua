@@ -11,7 +11,7 @@ T["setup"]["applies default config"] = function()
 	config.setup()
 
 	local cfg = config.get()
-	MiniTest.expect.equality(cfg.provider, "openai")
+	MiniTest.expect.equality(cfg.model, "claude-haiku-4-5")
 	MiniTest.expect.equality(cfg.language, "English")
 	MiniTest.expect.equality(cfg.commit_style, "conventional")
 end
@@ -20,23 +20,14 @@ T["setup"]["merges user config"] = function()
 	helpers.reset_config()
 	local config = require("ai-gitcommit.config")
 	config.setup({
-		provider = "anthropic",
+		model = "claude-sonnet-4-20250514",
 		language = "Chinese",
 	})
 
 	local cfg = config.get()
-	MiniTest.expect.equality(cfg.provider, "anthropic")
+	MiniTest.expect.equality(cfg.model, "claude-sonnet-4-20250514")
 	MiniTest.expect.equality(cfg.language, "Chinese")
 	MiniTest.expect.equality(cfg.commit_style, "conventional")
-end
-
-T["setup"]["errors on invalid provider"] = function()
-	helpers.reset_config()
-	local config = require("ai-gitcommit.config")
-
-	MiniTest.expect.error(function()
-		config.setup({ provider = "invalid" })
-	end, "Invalid provider")
 end
 
 T["get_provider"] = new_set()
@@ -44,28 +35,12 @@ T["get_provider"] = new_set()
 T["get_provider"]["returns provider config"] = function()
 	helpers.reset_config()
 	local config = require("ai-gitcommit.config")
-	config.setup({ provider = "openai" })
+	config.setup()
 
 	local provider = config.get_provider()
-	MiniTest.expect.equality(provider.model, "gpt-4o-mini")
-end
-
-T["requires_oauth"] = new_set()
-
-T["requires_oauth"]["returns true for copilot"] = function()
-	helpers.reset_config()
-	local config = require("ai-gitcommit.config")
-	config.setup()
-
-	MiniTest.expect.equality(config.requires_oauth("copilot"), true)
-end
-
-T["requires_oauth"]["returns false for openai"] = function()
-	helpers.reset_config()
-	local config = require("ai-gitcommit.config")
-	config.setup()
-
-	MiniTest.expect.equality(config.requires_oauth("openai"), false)
+	MiniTest.expect.equality(provider.model, "claude-haiku-4-5")
+	MiniTest.expect.equality(provider.endpoint, "https://api.anthropic.com/v1/messages")
+	MiniTest.expect.equality(provider.max_tokens, 500)
 end
 
 T["reset"] = new_set()
