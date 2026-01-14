@@ -1,0 +1,23 @@
+[tasks.deps]
+description = "Install test dependencies"
+run = "git clone --depth 1 https://github.com/echasnovski/mini.nvim deps/mini.nvim 2>/dev/null || true"
+run_windows = "if not exist deps\\mini.nvim git clone --depth 1 https://github.com/echasnovski/mini.nvim deps/mini.nvim"
+
+[tasks.test]
+description = "Run all tests"
+depends = ["deps"]
+run = "nvim --headless -u scripts/minimal_init.lua -c \"lua MiniTest.run()\""
+
+[tasks."test-file"]
+description = "Run single test file"
+depends = ["deps"]
+run = "nvim --headless -u scripts/minimal_init.lua -c \"lua MiniTest.run_file('{{arg(i=0)}}')\""
+
+[tasks.lint]
+description = "Run luacheck"
+run = "luacheck lua/ --globals vim"
+
+[tasks.clean]
+description = "Remove dependencies"
+run = "rm -rf deps"
+run_windows = "if exist deps rmdir /s /q deps"
