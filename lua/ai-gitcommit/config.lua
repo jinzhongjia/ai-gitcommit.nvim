@@ -57,13 +57,19 @@ local defaults = {
 ---@type AIGitCommit.Config
 local config = vim.deepcopy(defaults)
 
+---@param t table
+---@return boolean
+local function is_array(t)
+	return type(t) == "table" and vim.islist(t)
+end
+
 ---@param t1 table
 ---@param t2 table
 ---@return table
 local function deep_merge(t1, t2)
 	local result = vim.deepcopy(t1)
 	for k, v in pairs(t2) do
-		if type(v) == "table" and type(result[k]) == "table" then
+		if type(v) == "table" and type(result[k]) == "table" and not is_array(v) then
 			result[k] = deep_merge(result[k], v)
 		else
 			result[k] = v
