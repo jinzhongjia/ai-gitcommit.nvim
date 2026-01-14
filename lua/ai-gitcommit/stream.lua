@@ -36,11 +36,17 @@ function M.request(opts, on_chunk, on_done, on_error)
 
 	local stdout = uv.new_pipe()
 	local stderr = uv.new_pipe()
+	if not stdout or not stderr then
+		on_error("Failed to create pipes")
+		return nil
+	end
+
 	local stderr_chunks = {}
 	local stdout_chunks = {}
 	local stdout_buffer = ""
 	local has_error = false
 
+	---@diagnostic disable-next-line: missing-fields
 	local handle, _ = uv.spawn("curl", {
 		args = args,
 		stdio = { nil, stdout, stderr },
@@ -137,8 +143,10 @@ end
 
 ---@param stream_handle AIGitCommit.StreamHandle?
 function M.cancel(stream_handle)
-	if stream_handle then
-		if stream_handle.handle and not stream_handle.handle:is_closing() then
+	if stream_handle and stream_handle.handle then
+		---@diagnostic disable-next-line: undefined-field
+		if not stream_handle.handle:is_closing() then
+			---@diagnostic disable-next-line: undefined-field
 			stream_handle.handle:kill("sigterm")
 		end
 	end
