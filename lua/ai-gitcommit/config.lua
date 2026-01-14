@@ -74,7 +74,7 @@ local defaults = {
 
 	auto = {
 		enabled = true,
-		debounce_ms = 300,
+		debounce_ms = 450,
 	},
 }
 
