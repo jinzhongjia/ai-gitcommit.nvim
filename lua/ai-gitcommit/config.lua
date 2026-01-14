@@ -12,6 +12,10 @@
 ---@field exclude_paths? string[]
 ---@field include_only? string[]
 
+---@class AIGitCommit.AutoConfig
+---@field enabled boolean
+---@field debounce_ms? number
+
 ---@class AIGitCommit.Config
 ---@field model string
 ---@field endpoint string
@@ -21,6 +25,7 @@
 ---@field context AIGitCommit.ContextConfig
 ---@field filter AIGitCommit.FilterConfig
 ---@field keymap? string
+---@field auto? AIGitCommit.AutoConfig
 
 local M = {}
 
@@ -52,6 +57,11 @@ local defaults = {
 	},
 
 	keymap = nil,
+
+	auto = {
+		enabled = true,
+		debounce_ms = 300,
+	},
 }
 
 ---@type AIGitCommit.Config

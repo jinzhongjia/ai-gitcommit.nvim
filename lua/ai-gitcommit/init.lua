@@ -10,6 +10,10 @@ local M = {}
 
 local subcommands = { "login", "logout", "status" }
 
+local generated_buffers = {}
+local generating_buffers = {}
+local debounce_timers = {}
+
 ---@param args string
 ---@return string?, string?
 local function parse_subcommand(args)
@@ -48,6 +52,81 @@ end
 local function do_status()
 	local status = auth.is_authenticated() and "authenticated" or "not authenticated"
 	vim.notify("Anthropic: " .. status, vim.log.levels.INFO)
+end
+
+---@param language string
+---@param extra_context? string
+---@param bufnr? number
+---@param silent? boolean
+local function do_generate(language, extra_context, bufnr, silent)
+	bufnr = bufnr or vim.api.nvim_get_current_buf()
+
+	if generating_buffers[bufnr] then
+		return
+	end
+
+	generating_buffers[bufnr] = true
+
+	if not silent then
+		vim.notify("Generating commit message...", vim.log.levels.INFO)
+	end
+
+	git.get_staged_diff(function(diff)
+		git.get_staged_files(function(files)
+			if diff == "" then
+				generating_buffers[bufnr] = nil
+				if not silent then
+					vim.notify("No staged changes found", vim.log.levels.WARN)
+				end
+				return
+			end
+
+			local cfg = config.get()
+			local processed_diff = context.build_context(diff, files, cfg)
+
+			local final_prompt = prompt.build({
+				style = cfg.commit_style,
+				language = language,
+				extra_context = extra_context,
+				files = files,
+				diff = processed_diff,
+			})
+
+			auth.get_token(function(token_data, err)
+				if err then
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
+					end
+					return
+				end
+
+				local provider_config = config.get_provider()
+				provider_config.api_key = token_data.token
+
+				local provider = providers.get()
+				local message = ""
+
+				provider.generate(final_prompt, provider_config, function(chunk)
+					message = message .. chunk
+					if vim.api.nvim_buf_is_valid(bufnr) then
+						buffer.set_commit_message(message, bufnr)
+					end
+				end, function()
+					generating_buffers[bufnr] = nil
+					generated_buffers[bufnr] = true
+					if not silent then
+						vim.notify("Commit message generated!", vim.log.levels.INFO)
+					end
+				end, function(gen_err)
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
+					end
+				end)
+			end)
+		end)
+	end)
 end
 
 ---@param opts? AIGitCommit.Config
@@ -92,54 +171,70 @@ function M.setup(opts)
 			M.generate()
 		end, { desc = "AI Generate Commit Message" })
 	end
-end
 
----@param language string
----@param extra_context? string
-local function do_generate(language, extra_context)
-	vim.notify("Generating commit message...", vim.log.levels.INFO)
+	local auto_cfg = config.get().auto
+	if auto_cfg and auto_cfg.enabled then
+		vim.api.nvim_create_autocmd("FileType", {
+			pattern = "gitcommit",
+			callback = function(args)
+				local bufnr = args.buf
+				local debounce_ms = auto_cfg.debounce_ms or 300
 
-	git.get_staged_diff(function(diff)
-		git.get_staged_files(function(files)
-			if diff == "" then
-				vim.notify("No staged changes found", vim.log.levels.WARN)
-				return
-			end
-
-			local cfg = config.get()
-			local processed_diff = context.build_context(diff, files, cfg)
-
-			local final_prompt = prompt.build({
-				style = cfg.commit_style,
-				language = language,
-				extra_context = extra_context,
-				files = files,
-				diff = processed_diff,
-			})
-
-			auth.get_token(function(token_data, err)
-				if err then
-					vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
-					return
+				if debounce_timers[bufnr] then
+					debounce_timers[bufnr]:stop()
+					debounce_timers[bufnr]:close()
 				end
 
-				local provider_config = config.get_provider()
-				provider_config.api_key = token_data.token
+				local timer = vim.uv.new_timer()
+				debounce_timers[bufnr] = timer
 
-				local provider = providers.get()
-				local message = ""
+				timer:start(debounce_ms, 0, vim.schedule_wrap(function()
+					timer:stop()
+					timer:close()
+					debounce_timers[bufnr] = nil
 
-				provider.generate(final_prompt, provider_config, function(chunk)
-					message = message .. chunk
-					buffer.set_commit_message(message)
-				end, function()
-					vim.notify("Commit message generated!", vim.log.levels.INFO)
-				end, function(gen_err)
-					vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
-				end)
-			end)
-		end)
-	end)
+					if not vim.api.nvim_buf_is_valid(bufnr) then
+						return
+					end
+
+					if generated_buffers[bufnr] or generating_buffers[bufnr] then
+						return
+					end
+
+					if not auth.is_authenticated() then
+						return
+					end
+
+					local languages = config.get().languages
+
+					if #languages == 1 then
+						do_generate(languages[1], nil, bufnr, true)
+						return
+					end
+
+					vim.ui.select(languages, { prompt = "Select language:" }, function(choice)
+						if not choice then
+							return
+						end
+						do_generate(choice, nil, bufnr, true)
+					end)
+				end))
+			end,
+		})
+	end
+
+	vim.api.nvim_create_autocmd("BufDelete", {
+		callback = function(args)
+			local bufnr = args.buf
+			generated_buffers[bufnr] = nil
+			generating_buffers[bufnr] = nil
+			if debounce_timers[bufnr] then
+				debounce_timers[bufnr]:stop()
+				debounce_timers[bufnr]:close()
+				debounce_timers[bufnr] = nil
+			end
+		end,
+	})
 end
 
 ---@param extra_context? string
