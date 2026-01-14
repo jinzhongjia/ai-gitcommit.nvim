@@ -1,0 +1,338 @@
+local uv = vim.uv
+
+local M = {}
+
+local AUTHORIZATION_URL = "https://console.anthropic.com/oauth/authorize"
+local TOKEN_URL = "https://console.anthropic.com/v1/oauth/token"
+local CREATE_API_KEY_URL = "https://api.anthropic.com/api/oauth/claude_cli/create_api_key"
+local REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
+local CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
+local SCOPES = "org:create_api_key user:profile user:inference"
+
+local function get_token_path()
+	return vim.fn.expand("~/.config/ai-gitcommit/anthropic.json")
+end
+
+---@param args string[]
+---@param callback fun(stdout: string, code: integer)
+local function curl(args, callback)
+	local stdout_pipe = uv.new_pipe()
+	local stdout_chunks = {}
+
+	local handle = uv.spawn("curl", {
+		args = args,
+		stdio = { nil, stdout_pipe, nil },
+	}, function(code)
+		stdout_pipe:close()
+		local stdout = table.concat(stdout_chunks, "")
+		vim.schedule(function()
+			callback(stdout, code)
+		end)
+	end)
+
+	if not handle then
+		vim.schedule(function()
+			callback("", 1)
+		end)
+		return
+	end
+
+	stdout_pipe:read_start(function(_, data)
+		if data then
+			table.insert(stdout_chunks, data)
+		end
+	end)
+end
+
+--- Generate a random string for PKCE verifier
+---@param length number
+---@return string
+local function generate_random_string(length)
+	local chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~"
+	local result = {}
+	for _ = 1, length do
+		local idx = math.random(1, #chars)
+		table.insert(result, chars:sub(idx, idx))
+	end
+	return table.concat(result)
+end
+
+--- Convert hex string to bytes
+---@param hex string
+---@return string
+local function hex_to_bytes(hex)
+	local bytes = {}
+	for i = 1, #hex, 2 do
+		local byte = tonumber(hex:sub(i, i + 1), 16)
+		table.insert(bytes, string.char(byte))
+	end
+	return table.concat(bytes)
+end
+
+---@param data string
+---@return string
+local function base64url_encode(data)
+	local b64 = vim.base64.encode(data)
+	local result = b64:gsub("+", "-"):gsub("/", "_"):gsub("=", "")
+	return result
+end
+
+--- Generate PKCE challenge and verifier
+---@return string verifier
+---@return string challenge
+local function generate_pkce()
+	local verifier = generate_random_string(43)
+	local hash_hex = vim.fn.sha256(verifier)
+	local hash_bytes = hex_to_bytes(hash_hex)
+	local challenge = base64url_encode(hash_bytes)
+	return verifier, challenge
+end
+
+--- Build authorization URL
+---@param challenge string
+---@param verifier string
+---@return string
+local function build_auth_url(challenge, verifier)
+	local params = {
+		"code=true",
+		"client_id=" .. CLIENT_ID,
+		"response_type=code",
+		"redirect_uri=" .. vim.uri_encode(REDIRECT_URI),
+		"scope=" .. vim.uri_encode(SCOPES),
+		"code_challenge=" .. challenge,
+		"code_challenge_method=S256",
+		"state=" .. verifier,
+	}
+	return AUTHORIZATION_URL .. "?" .. table.concat(params, "&")
+end
+
+---@return boolean
+function M.is_authenticated()
+	local token_path = get_token_path()
+	local stat = uv.fs_stat(token_path)
+	if not stat then
+		return false
+	end
+
+	local fd = uv.fs_open(token_path, "r", 438)
+	if not fd then
+		return false
+	end
+
+	local content = uv.fs_read(fd, stat.size, 0)
+	uv.fs_close(fd)
+
+	if not content then
+		return false
+	end
+
+	local ok, data = pcall(vim.json.decode, content)
+	if not ok or not data then
+		return false
+	end
+
+	return data.api_key ~= nil
+end
+
+---@param api_key string
+local function store_api_key(api_key)
+	local config_dir = vim.fn.expand("~/.config/ai-gitcommit")
+	vim.fn.mkdir(config_dir, "p")
+
+	local token_path = get_token_path()
+	local data = {
+		api_key = api_key,
+		created_at = os.time(),
+	}
+
+	local fd = uv.fs_open(token_path, "w", 384)
+	if fd then
+		uv.fs_write(fd, vim.json.encode(data))
+		uv.fs_close(fd)
+	end
+end
+
+---@param callback fun(data: table?, err: string?)
+function M.get_token(callback)
+	if not M.is_authenticated() then
+		callback(nil, "Not authenticated. Run :AICommit login anthropic")
+		return
+	end
+
+	local token_path = get_token_path()
+	local stat = uv.fs_stat(token_path)
+	if not stat then
+		callback(nil, "Token file not found")
+		return
+	end
+
+	local fd = uv.fs_open(token_path, "r", 438)
+	if not fd then
+		callback(nil, "Cannot read token file")
+		return
+	end
+
+	local content = uv.fs_read(fd, stat.size, 0)
+	uv.fs_close(fd)
+
+	local ok, data = pcall(vim.json.decode, content)
+	if not ok or not data or not data.api_key then
+		callback(nil, "Invalid token file")
+		return
+	end
+
+	callback({ token = data.api_key })
+end
+
+---@param code string
+---@param verifier string
+---@param callback fun(data: table?, err: string?)
+local function exchange_code(code, verifier, callback)
+	local splits = vim.split(code, "#", { plain = true })
+	local auth_code = splits[1]
+	local state = splits[2]
+
+	local body = vim.json.encode({
+		code = auth_code,
+		state = state,
+		grant_type = "authorization_code",
+		client_id = CLIENT_ID,
+		redirect_uri = REDIRECT_URI,
+		code_verifier = verifier,
+	})
+
+	curl({
+		"-s",
+		"-X",
+		"POST",
+		"-H",
+		"Content-Type: application/json",
+		"-d",
+		body,
+		TOKEN_URL,
+	}, function(stdout, exit_code)
+		if exit_code ~= 0 then
+			callback(nil, "Failed to exchange code")
+			return
+		end
+
+		local ok, data = pcall(vim.json.decode, stdout)
+		if not ok then
+			callback(nil, "Invalid token response")
+			return
+		end
+
+		if data.error then
+			callback(nil, "OAuth error: " .. (data.error_description or data.error))
+			return
+		end
+
+		if not data.access_token then
+			callback(nil, "No access token in response")
+			return
+		end
+
+		callback({
+			access_token = data.access_token,
+			refresh_token = data.refresh_token,
+			expires_in = data.expires_in,
+		})
+	end)
+end
+
+---@param access_token string
+---@param callback fun(api_key: string?, err: string?)
+local function create_api_key(access_token, callback)
+	curl({
+		"-s",
+		"-X",
+		"POST",
+		"-H",
+		"Content-Type: application/json",
+		"-H",
+		"Authorization: Bearer " .. access_token,
+		CREATE_API_KEY_URL,
+	}, function(stdout, exit_code)
+		if exit_code ~= 0 then
+			callback(nil, "Failed to create API key")
+			return
+		end
+
+		local ok, data = pcall(vim.json.decode, stdout)
+		if not ok then
+			callback(nil, "Invalid API key response")
+			return
+		end
+
+		if data.error then
+			callback(nil, "API key error: " .. (data.error.message or data.error))
+			return
+		end
+
+		if not data.raw_key then
+			callback(nil, "No API key in response")
+			return
+		end
+
+		callback(data.raw_key)
+	end)
+end
+
+---@param callback fun(data: table?, err: string?)
+function M.login(callback)
+	math.randomseed(os.time())
+
+	local verifier, challenge = generate_pkce()
+	local auth_url = build_auth_url(challenge, verifier)
+
+	local msg = string.format(
+		"Opening browser for Anthropic Console login...\n\nAfter authorizing, copy the code from the page and paste it here."
+	)
+	vim.notify(msg, vim.log.levels.INFO)
+
+	if vim.fn.has("mac") == 1 then
+		uv.spawn("open", { args = { auth_url } }, function() end)
+	elseif vim.fn.has("unix") == 1 then
+		uv.spawn("xdg-open", { args = { auth_url } }, function() end)
+	elseif vim.fn.has("win32") == 1 then
+		uv.spawn("cmd", { args = { "/c", "start", auth_url } }, function() end)
+	end
+
+	vim.schedule(function()
+		vim.ui.input({ prompt = "Paste authorization code: " }, function(code)
+			if not code or code == "" then
+				callback(nil, "No code provided")
+				return
+			end
+
+			exchange_code(code, verifier, function(tokens, err)
+				if err then
+					callback(nil, err)
+					return
+				end
+
+				create_api_key(tokens.access_token, function(api_key, key_err)
+					if key_err then
+						callback(nil, key_err)
+						return
+					end
+
+					store_api_key(api_key)
+					vim.notify("Anthropic API key created and stored!", vim.log.levels.INFO)
+					callback({ api_key = api_key })
+				end)
+			end)
+		end)
+	end)
+end
+
+function M.logout()
+	local token_path = get_token_path()
+	local stat = uv.fs_stat(token_path)
+	if stat then
+		uv.fs_unlink(token_path)
+	end
+	vim.notify("Anthropic logged out", vim.log.levels.INFO)
+end
+
+return M

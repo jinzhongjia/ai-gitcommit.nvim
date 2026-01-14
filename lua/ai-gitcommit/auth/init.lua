@@ -3,7 +3,7 @@ local M = {}
 local auth_modules = {
 	copilot = "ai-gitcommit.auth.copilot",
 	codex = "ai-gitcommit.auth.codex",
-	claude = "ai-gitcommit.auth.claude",
+	anthropic = "ai-gitcommit.auth.anthropic",
 }
 
 ---@param provider_name string
@@ -29,6 +29,12 @@ function M.get_token(provider_name, callback)
 		return
 	end
 	auth_module.get_token(callback)
+end
+
+---@param provider_name string
+---@return boolean
+function M.supports_oauth(provider_name)
+	return auth_modules[provider_name] ~= nil
 end
 
 ---@param provider_name string

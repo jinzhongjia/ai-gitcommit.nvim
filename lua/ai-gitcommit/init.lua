@@ -35,12 +35,12 @@ local function do_login(provider_name)
 		return
 	end
 
-	if not config.requires_oauth(provider_name) then
-		vim.notify(provider_name .. " uses API key, not OAuth", vim.log.levels.INFO)
+	local auth = require("ai-gitcommit.auth")
+	if not auth.supports_oauth(provider_name) then
+		vim.notify(provider_name .. " does not support OAuth login", vim.log.levels.INFO)
 		return
 	end
 
-	local auth = require("ai-gitcommit.auth")
 	vim.notify("Starting OAuth flow for " .. provider_name .. "...", vim.log.levels.INFO)
 	auth.login(provider_name, function(success, err)
 		if success then
@@ -58,19 +58,19 @@ local function do_logout(provider_name)
 		return
 	end
 
-	if not config.requires_oauth(provider_name) then
-		vim.notify(provider_name .. " does not use OAuth", vim.log.levels.INFO)
+	local auth = require("ai-gitcommit.auth")
+	if not auth.supports_oauth(provider_name) then
+		vim.notify(provider_name .. " does not support OAuth", vim.log.levels.INFO)
 		return
 	end
 
-	local auth = require("ai-gitcommit.auth")
 	auth.logout(provider_name)
 	vim.notify("Logged out from " .. provider_name, vim.log.levels.INFO)
 end
 
 local function do_status()
 	local auth = require("ai-gitcommit.auth")
-	local oauth_providers = { "copilot", "codex", "claude" }
+	local oauth_providers = { "copilot", "codex", "anthropic" }
 	local lines = { "OAuth Status:" }
 
 	for _, name in ipairs(oauth_providers) do
@@ -104,7 +104,7 @@ function M.setup(opts)
 			if #parts == 1 then
 				return vim.list_extend({ "login", "logout", "status" }, {})
 			elseif #parts == 2 and (parts[2] == "login" or parts[2] == "logout") then
-				return { "copilot", "codex", "claude" }
+				return { "copilot", "codex", "anthropic" }
 			elseif #parts == 2 then
 				local matches = {}
 				for _, sub in ipairs(subcommands) do
@@ -143,12 +143,12 @@ function M.generate(extra_context)
 		return
 	end
 
-	if config.requires_oauth(provider_name) then
-		local auth = require("ai-gitcommit.auth")
-		if not auth.is_authenticated(provider_name) then
-			vim.notify("Not authenticated. Run :AICommit login " .. provider_name, vim.log.levels.WARN)
-			return
-		end
+	local auth = require("ai-gitcommit.auth")
+	local use_oauth = auth.is_authenticated(provider_name)
+
+	if not use_oauth and config.requires_oauth(provider_name) then
+		vim.notify("Not authenticated. Run :AICommit login " .. provider_name, vim.log.levels.WARN)
+		return
 	end
 
 	vim.notify("Generating commit message...", vim.log.levels.INFO)
@@ -182,15 +182,14 @@ function M.generate(extra_context)
 				end)
 			end
 
-			if config.requires_oauth(provider_name) then
-				local auth = require("ai-gitcommit.auth")
+			if use_oauth then
 				auth.get_token(provider_name, function(token_data, err)
 					if err then
 						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
 						return
 					end
 					local provider_config = config.get_provider()
-					provider_config.token = token_data.token
+					provider_config.api_key = token_data.token
 					do_generate(provider_config)
 				end)
 			else
