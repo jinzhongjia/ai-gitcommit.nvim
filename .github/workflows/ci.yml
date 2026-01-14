@@ -20,7 +20,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Neovim
-        uses: jinzhongjia/neovim-action@v1
+        uses: jinzhongjia/neovim-action@v1.0.2
         with:
           version: ${{ matrix.nvim_version }}
 
