@@ -9,16 +9,26 @@ local REDIRECT_URI = "https://console.anthropic.com/oauth/code/callback"
 local CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 local SCOPES = "org:create_api_key user:profile user:inference"
 
+local IS_WINDOWS = vim.fn.has("win32") == 1
+
 local function get_token_path()
-	return vim.fn.expand("~/.config/ai-gitcommit/anthropic.json")
+	return vim.fs.joinpath(vim.fn.stdpath("data"), "ai-gitcommit", "anthropic.json")
 end
 
 ---@param args string[]
 ---@param callback fun(stdout: string, code: integer)
 local function curl(args, callback)
 	local stdout_pipe = uv.new_pipe()
+	if not stdout_pipe then
+		vim.schedule(function()
+			callback("", 1)
+		end)
+		return
+	end
+
 	local stdout_chunks = {}
 
+	---@diagnostic disable-next-line: missing-fields
 	local handle = uv.spawn("curl", {
 		args = args,
 		stdio = { nil, stdout_pipe, nil },
@@ -31,6 +41,7 @@ local function curl(args, callback)
 	end)
 
 	if not handle then
+		stdout_pipe:close()
 		vim.schedule(function()
 			callback("", 1)
 		end)
@@ -44,7 +55,6 @@ local function curl(args, callback)
 	end)
 end
 
---- Generate a random string for PKCE verifier
 ---@param length number
 ---@return string
 local function generate_random_string(length)
@@ -57,7 +67,6 @@ local function generate_random_string(length)
 	return table.concat(result)
 end
 
---- Convert hex string to bytes
 ---@param hex string
 ---@return string
 local function hex_to_bytes(hex)
@@ -73,11 +82,9 @@ end
 ---@return string
 local function base64url_encode(data)
 	local b64 = vim.base64.encode(data)
-	local result = b64:gsub("+", "-"):gsub("/", "_"):gsub("=", "")
-	return result
+	return b64:gsub("+", "-"):gsub("/", "_"):gsub("=", "")
 end
 
---- Generate PKCE challenge and verifier
 ---@return string verifier
 ---@return string challenge
 local function generate_pkce()
@@ -88,7 +95,6 @@ local function generate_pkce()
 	return verifier, challenge
 end
 
---- Build authorization URL
 ---@param challenge string
 ---@param verifier string
 ---@return string
@@ -114,7 +120,7 @@ function M.is_authenticated()
 		return false
 	end
 
-	local fd = uv.fs_open(token_path, "r", 438)
+	local fd = uv.fs_open(token_path, "r", IS_WINDOWS and 0 or 438)
 	if not fd then
 		return false
 	end
@@ -136,18 +142,18 @@ end
 
 ---@param api_key string
 local function store_api_key(api_key)
-	local config_dir = vim.fn.expand("~/.config/ai-gitcommit")
-	vim.fn.mkdir(config_dir, "p")
+	local data_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "ai-gitcommit")
+	vim.fn.mkdir(data_dir, "p")
 
 	local token_path = get_token_path()
-	local data = {
+	local file_data = {
 		api_key = api_key,
 		created_at = os.time(),
 	}
 
-	local fd = uv.fs_open(token_path, "w", 384)
+	local fd = uv.fs_open(token_path, "w", IS_WINDOWS and 0 or 384)
 	if fd then
-		uv.fs_write(fd, vim.json.encode(data))
+		uv.fs_write(fd, vim.json.encode(file_data))
 		uv.fs_close(fd)
 	end
 end
@@ -155,7 +161,7 @@ end
 ---@param callback fun(data: table?, err: string?)
 function M.get_token(callback)
 	if not M.is_authenticated() then
-		callback(nil, "Not authenticated. Run :AICommit login anthropic")
+		callback(nil, "Not authenticated. Run :AICommit login")
 		return
 	end
 
@@ -166,7 +172,7 @@ function M.get_token(callback)
 		return
 	end
 
-	local fd = uv.fs_open(token_path, "r", 438)
+	local fd = uv.fs_open(token_path, "r", IS_WINDOWS and 0 or 438)
 	if not fd then
 		callback(nil, "Cannot read token file")
 		return
@@ -278,6 +284,18 @@ local function create_api_key(access_token, callback)
 	end)
 end
 
+local function open_browser(url)
+	---@diagnostic disable: missing-fields
+	if vim.fn.has("mac") == 1 then
+		uv.spawn("open", { args = { url } }, function() end)
+	elseif IS_WINDOWS then
+		uv.spawn("cmd", { args = { "/c", "start", "", url } }, function() end)
+	else
+		uv.spawn("xdg-open", { args = { url } }, function() end)
+	end
+	---@diagnostic enable: missing-fields
+end
+
 ---@param callback fun(data: table?, err: string?)
 function M.login(callback)
 	math.randomseed(os.time())
@@ -285,18 +303,12 @@ function M.login(callback)
 	local verifier, challenge = generate_pkce()
 	local auth_url = build_auth_url(challenge, verifier)
 
-	local msg = string.format(
-		"Opening browser for Anthropic Console login...\n\nAfter authorizing, copy the code from the page and paste it here."
+	vim.notify(
+		"Opening browser for Anthropic Console login...\n\nAfter authorizing, copy the code from the page and paste it here.",
+		vim.log.levels.INFO
 	)
-	vim.notify(msg, vim.log.levels.INFO)
 
-	if vim.fn.has("mac") == 1 then
-		uv.spawn("open", { args = { auth_url } }, function() end)
-	elseif vim.fn.has("unix") == 1 then
-		uv.spawn("xdg-open", { args = { auth_url } }, function() end)
-	elseif vim.fn.has("win32") == 1 then
-		uv.spawn("cmd", { args = { "/c", "start", auth_url } }, function() end)
-	end
+	open_browser(auth_url)
 
 	vim.schedule(function()
 		vim.ui.input({ prompt = "Paste authorization code: " }, function(code)
