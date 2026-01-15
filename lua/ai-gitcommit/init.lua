@@ -106,12 +106,13 @@ local function do_generate(language, extra_context, bufnr, silent)
 				provider_config.api_key = api_key
 
 				local provider = providers.get()
+				local first_comment = buffer.find_first_comment_line(bufnr)
 
 				local tw = typewriter.new({
 					bufnr = bufnr,
-					on_update = buffer.set_commit_message,
-					interval_ms = 8,
-					chars_per_tick = 2,
+					first_comment_line = first_comment,
+					interval_ms = 12,
+					chars_per_tick = 4,
 				})
 
 				provider.generate(final_prompt, provider_config, function(chunk)
