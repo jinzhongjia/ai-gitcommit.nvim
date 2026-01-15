@@ -1,5 +1,3 @@
-local uv = vim.uv
-
 local M = {}
 
 local AUTHORIZATION_URL = "https://console.anthropic.com/oauth/authorize"
@@ -15,43 +13,32 @@ local function get_token_path()
 	return vim.fs.joinpath(vim.fn.stdpath("data"), "ai-gitcommit", "anthropic.json")
 end
 
+---@param path string
+---@return string?
+local function read_file(path)
+	if vim.fn.filereadable(path) ~= 1 then
+		return nil
+	end
+	local lines = vim.fn.readfile(path)
+	return table.concat(lines, "\n")
+end
+
+---@param path string
+---@param content string
+local function write_file(path, content)
+	vim.fn.writefile({ content }, path)
+end
+
 ---@param args string[]
 ---@param callback fun(stdout: string, code: integer)
 local function curl(args, callback)
-	local stdout_pipe = uv.new_pipe()
-	if not stdout_pipe then
+	local full_cmd = { "curl" }
+	vim.list_extend(full_cmd, args)
+
+	vim.system(full_cmd, { text = true }, function(obj)
 		vim.schedule(function()
-			callback("", 1)
+			callback(obj.stdout or "", obj.code)
 		end)
-		return
-	end
-
-	local stdout_chunks = {}
-
-	---@diagnostic disable-next-line: missing-fields
-	local handle = uv.spawn("curl", {
-		args = args,
-		stdio = { nil, stdout_pipe, nil },
-	}, function(code)
-		stdout_pipe:close()
-		local stdout = table.concat(stdout_chunks, "")
-		vim.schedule(function()
-			callback(stdout, code)
-		end)
-	end)
-
-	if not handle then
-		stdout_pipe:close()
-		vim.schedule(function()
-			callback("", 1)
-		end)
-		return
-	end
-
-	stdout_pipe:read_start(function(_, data)
-		if data then
-			table.insert(stdout_chunks, data)
-		end
 	end)
 end
 
@@ -115,19 +102,7 @@ end
 ---@return boolean
 function M.is_authenticated()
 	local token_path = get_token_path()
-	local stat = uv.fs_stat(token_path)
-	if not stat then
-		return false
-	end
-
-	local fd = uv.fs_open(token_path, "r", IS_WINDOWS and 0 or 438)
-	if not fd then
-		return false
-	end
-
-	local content = uv.fs_read(fd, stat.size, 0)
-	uv.fs_close(fd)
-
+	local content = read_file(token_path)
 	if not content then
 		return false
 	end
@@ -151,11 +126,7 @@ local function store_api_key(api_key)
 		created_at = os.time(),
 	}
 
-	local fd = uv.fs_open(token_path, "w", IS_WINDOWS and 0 or 384)
-	if fd then
-		uv.fs_write(fd, vim.json.encode(file_data))
-		uv.fs_close(fd)
-	end
+	write_file(token_path, vim.json.encode(file_data))
 end
 
 ---@param callback fun(data: table?, err: string?)
@@ -166,20 +137,11 @@ function M.get_token(callback)
 	end
 
 	local token_path = get_token_path()
-	local stat = uv.fs_stat(token_path)
-	if not stat then
+	local content = read_file(token_path)
+	if not content then
 		callback(nil, "Token file not found")
 		return
 	end
-
-	local fd = uv.fs_open(token_path, "r", IS_WINDOWS and 0 or 438)
-	if not fd then
-		callback(nil, "Cannot read token file")
-		return
-	end
-
-	local content = uv.fs_read(fd, stat.size, 0)
-	uv.fs_close(fd)
 
 	local ok, data = pcall(vim.json.decode, content)
 	if not ok or not data or not data.api_key then
@@ -285,15 +247,13 @@ local function create_api_key(access_token, callback)
 end
 
 local function open_browser(url)
-	---@diagnostic disable: missing-fields
 	if vim.fn.has("mac") == 1 then
-		uv.spawn("open", { args = { url } }, function() end)
+		vim.system({ "open", url }, { detach = true })
 	elseif IS_WINDOWS then
-		uv.spawn("cmd", { args = { "/c", "start", "", url } }, function() end)
+		vim.system({ "cmd", "/c", "start", "", url }, { detach = true })
 	else
-		uv.spawn("xdg-open", { args = { url } }, function() end)
+		vim.system({ "xdg-open", url }, { detach = true })
 	end
-	---@diagnostic enable: missing-fields
 end
 
 ---@param callback fun(data: table?, err: string?)
@@ -308,7 +268,7 @@ function M.login(callback)
 		vim.log.levels.INFO
 	)
 
-    open_browser(auth_url)
+	open_browser(auth_url)
 
 	vim.schedule(function()
 		vim.ui.input({ prompt = "Paste authorization code: " }, function(code)
@@ -340,9 +300,8 @@ end
 
 function M.logout()
 	local token_path = get_token_path()
-	local stat = uv.fs_stat(token_path)
-	if stat then
-		uv.fs_unlink(token_path)
+	if vim.fn.filereadable(token_path) == 1 then
+		vim.fn.delete(token_path)
 	end
 	vim.notify("Anthropic logged out", vim.log.levels.INFO)
 end

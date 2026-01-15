@@ -201,16 +201,13 @@ function M.setup(opts)
 				local debounce_ms = auto_cfg.debounce_ms or 300
 
 				if debounce_timers[bufnr] then
-					debounce_timers[bufnr]:stop()
-					debounce_timers[bufnr]:close()
+					pcall(function()
+						debounce_timers[bufnr]:stop()
+						debounce_timers[bufnr]:close()
+					end)
 				end
 
-				local timer = vim.uv.new_timer()
-				debounce_timers[bufnr] = timer
-
-				timer:start(debounce_ms, 0, vim.schedule_wrap(function()
-					timer:stop()
-					timer:close()
+				debounce_timers[bufnr] = vim.defer_fn(function()
 					debounce_timers[bufnr] = nil
 
 					if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -238,7 +235,7 @@ function M.setup(opts)
 						end
 						do_generate(choice, nil, bufnr, true)
 					end)
-				end))
+				end, debounce_ms)
 			end,
 		})
 	end
