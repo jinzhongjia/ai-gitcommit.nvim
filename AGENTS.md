@@ -12,7 +12,6 @@ mise run test   # All tests must pass
 ### Must Follow
 
 - **Neovim version**: 0.11+ only, no backward compatibility needed
-- **Process operations**: Use `vim.uv` (luv), not `vim.system` / `vim.fn.jobstart`
 - **Test framework**: mini.test, not plenary
 - **Type annotations**: Keep LuaLS annotations (`---@param`, `---@class`, etc.)
 - **Providers**: Only openai / anthropic / copilot
