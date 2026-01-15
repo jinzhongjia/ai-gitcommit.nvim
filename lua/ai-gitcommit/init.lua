@@ -1,10 +1,11 @@
+local buffer = require("ai-gitcommit.buffer")
 local config = require("ai-gitcommit.config")
 local git = require("ai-gitcommit.git")
-local buffer = require("ai-gitcommit.buffer")
-local context = require("ai-gitcommit.context")
 local prompt = require("ai-gitcommit.prompt")
+local context = require("ai-gitcommit.context")
 local providers = require("ai-gitcommit.providers")
 local auth = require("ai-gitcommit.auth")
+local typewriter = require("ai-gitcommit.typewriter")
 
 local M = {}
 
@@ -105,20 +106,26 @@ local function do_generate(language, extra_context, bufnr, silent)
 				provider_config.api_key = api_key
 
 				local provider = providers.get()
-				local message = ""
+				local first_comment = buffer.find_first_comment_line(bufnr)
+
+				local tw = typewriter.new({
+					bufnr = bufnr,
+					first_comment_line = first_comment,
+					interval_ms = 12,
+					chars_per_tick = 4,
+				})
 
 				provider.generate(final_prompt, provider_config, function(chunk)
-					message = message .. chunk
-					if vim.api.nvim_buf_is_valid(bufnr) then
-						buffer.set_commit_message(message, bufnr)
-					end
+					tw:push(chunk)
 				end, function()
+					tw:flush()
 					generating_buffers[bufnr] = nil
 					generated_buffers[bufnr] = true
 					if not silent then
 						vim.notify("Commit message generated!", vim.log.levels.INFO)
 					end
 				end, function(gen_err)
+					tw:stop()
 					generating_buffers[bufnr] = nil
 					if not silent then
 						vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
@@ -201,16 +208,13 @@ function M.setup(opts)
 				local debounce_ms = auto_cfg.debounce_ms or 300
 
 				if debounce_timers[bufnr] then
-					debounce_timers[bufnr]:stop()
-					debounce_timers[bufnr]:close()
+					pcall(function()
+						debounce_timers[bufnr]:stop()
+						debounce_timers[bufnr]:close()
+					end)
 				end
 
-				local timer = vim.uv.new_timer()
-				debounce_timers[bufnr] = timer
-
-				timer:start(debounce_ms, 0, vim.schedule_wrap(function()
-					timer:stop()
-					timer:close()
+				debounce_timers[bufnr] = vim.defer_fn(function()
 					debounce_timers[bufnr] = nil
 
 					if not vim.api.nvim_buf_is_valid(bufnr) then
@@ -238,7 +242,7 @@ function M.setup(opts)
 						end
 						do_generate(choice, nil, bufnr, true)
 					end)
-				end))
+				end, debounce_ms)
 			end,
 		})
 	end
