@@ -132,7 +132,7 @@ end
 ---@param callback fun(data: table?, err: string?)
 function M.get_token(callback)
 	if not M.is_authenticated() then
-		callback(nil, "Not authenticated. Run :AICommit login")
+		callback(nil, "Not authenticated. Run :AICommit login anthropic")
 		return
 	end
 

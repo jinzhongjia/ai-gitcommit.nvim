@@ -10,17 +10,49 @@ local typewriter = require("ai-gitcommit.typewriter")
 local M = {}
 
 local subcommands = { "login", "logout", "status" }
+local provider_names = { "openai", "anthropic", "copilot" }
 
 local generated_buffers = {}
 local generating_buffers = {}
 local debounce_timers = {}
 
-local function has_api_key()
-	local api_key = config.get().api_key
+---@param api_key string|fun():string|nil
+---@return string?
+local function resolve_api_key(api_key)
 	if type(api_key) == "function" then
 		api_key = api_key()
 	end
-	return api_key ~= nil and api_key ~= ""
+
+	if type(api_key) ~= "string" or api_key == "" then
+		return nil
+	end
+
+	return api_key
+end
+
+---@return boolean
+local function has_provider_credentials()
+	local provider, _ = config.get_provider()
+	if not provider then
+		return false
+	end
+
+	if provider.name == "openai" then
+		return resolve_api_key(provider.config.api_key) ~= nil
+	end
+
+	if provider.name == "anthropic" then
+		if resolve_api_key(provider.config.api_key) ~= nil then
+			return true
+		end
+		return auth.is_authenticated("anthropic")
+	end
+
+	if provider.name == "copilot" then
+		return auth.is_authenticated("copilot")
+	end
+
+	return false
 end
 
 ---@param args string
@@ -42,25 +74,78 @@ local function parse_subcommand(args)
 	return nil, args
 end
 
-local function do_login()
-	vim.notify("Starting Anthropic OAuth flow...", vim.log.levels.INFO)
-	auth.login(function(success, err)
-		if success then
-			vim.notify("Logged in to Anthropic", vim.log.levels.INFO)
+---@param provider string?
+local function do_login(provider)
+	if not provider then
+		vim.notify("Usage: :AICommit login <provider>", vim.log.levels.ERROR)
+		return
+	end
+
+	if not config.is_supported_provider(provider) then
+		vim.notify("Unsupported provider: " .. provider, vim.log.levels.ERROR)
+		return
+	end
+
+	vim.notify("Starting " .. provider .. " login flow...", vim.log.levels.INFO)
+	auth.login(provider, function(result, err)
+		if result then
+			vim.notify("Logged in to " .. provider, vim.log.levels.INFO)
 		else
 			vim.notify("Login failed: " .. (err or "unknown"), vim.log.levels.ERROR)
 		end
 	end)
 end
 
-local function do_logout()
-	auth.logout()
-	vim.notify("Logged out from Anthropic", vim.log.levels.INFO)
+---@param provider string?
+local function do_logout(provider)
+	if not provider then
+		vim.notify("Usage: :AICommit logout <provider>", vim.log.levels.ERROR)
+		return
+	end
+
+	if not config.is_supported_provider(provider) then
+		vim.notify("Unsupported provider: " .. provider, vim.log.levels.ERROR)
+		return
+	end
+
+	local ok, err = auth.logout(provider)
+	if not ok then
+		vim.notify("Logout failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+		return
+	end
+
+	vim.notify("Logged out from " .. provider, vim.log.levels.INFO)
 end
 
-local function do_status()
-	local status = auth.is_authenticated() and "authenticated" or "not authenticated"
-	vim.notify("Anthropic: " .. status, vim.log.levels.INFO)
+---@param provider string
+---@return string
+local function provider_status(provider)
+	if provider == "openai" then
+		local provider_info, _ = config.get_provider()
+		local openai_config = provider_info and provider_info.name == "openai" and provider_info.config
+			or config.get().providers.openai
+		local has_key = openai_config and resolve_api_key(openai_config.api_key) ~= nil
+		return has_key and "configured" or "not configured"
+	end
+
+	local status = auth.is_authenticated(provider) and "authenticated" or "not authenticated"
+	return status
+end
+
+---@param provider string?
+local function do_status(provider)
+	if provider then
+		if not config.is_supported_provider(provider) then
+			vim.notify("Unsupported provider: " .. provider, vim.log.levels.ERROR)
+			return
+		end
+		vim.notify(provider .. ": " .. provider_status(provider), vim.log.levels.INFO)
+		return
+	end
+
+	for _, name in ipairs(provider_names) do
+		vim.notify(name .. ": " .. provider_status(name), vim.log.levels.INFO)
+	end
 end
 
 ---@param language string
@@ -102,10 +187,21 @@ local function do_generate(language, extra_context, bufnr, silent)
 			})
 
 			local function run_generate(api_key)
-				local provider_config = config.get_provider()
-				provider_config.api_key = api_key
+				local provider_info, provider_err = config.get_provider()
+				if not provider_info then
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify(provider_err, vim.log.levels.ERROR)
+					end
+					return
+				end
 
-				local provider = providers.get()
+				local provider_config = vim.deepcopy(provider_info.config)
+				if api_key then
+					provider_config.api_key = api_key
+				end
+
+				local provider = providers.get(provider_info.name)
 				local first_comment = buffer.find_first_comment_line(bufnr)
 
 				local tw = typewriter.new({
@@ -133,25 +229,44 @@ local function do_generate(language, extra_context, bufnr, silent)
 				end)
 			end
 
-			local api_key = cfg.api_key
-			if type(api_key) == "function" then
-				api_key = api_key()
+			local provider_info, provider_err = config.get_provider()
+			if not provider_info then
+				generating_buffers[bufnr] = nil
+				if not silent then
+					vim.notify(provider_err, vim.log.levels.ERROR)
+				end
+				return
 			end
 
-			if api_key then
-				run_generate(api_key)
-			else
-				auth.get_token(function(token_data, err)
-					if err then
-						generating_buffers[bufnr] = nil
-						if not silent then
-							vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
-						end
-						return
+			local api_key = resolve_api_key(provider_info.config.api_key)
+
+			if provider_info.name == "openai" then
+				if not api_key then
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify("OpenAI API key not configured", vim.log.levels.ERROR)
 					end
-					run_generate(token_data.token)
-				end)
+					return
+				end
+				run_generate(api_key)
+				return
 			end
+
+			if provider_info.name == "anthropic" and api_key then
+				run_generate(api_key)
+				return
+			end
+
+			auth.get_token(provider_info.name, function(token_data, err)
+				if err then
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
+					end
+					return
+				end
+				run_generate(token_data.token)
+			end)
 		end)
 	end)
 end
@@ -164,11 +279,11 @@ function M.setup(opts)
 		local sub, arg = parse_subcommand(cmd_opts.args)
 
 		if sub == "login" then
-			do_login()
+			do_login(arg)
 		elseif sub == "logout" then
-			do_logout()
+			do_logout(arg)
 		elseif sub == "status" then
-			do_status()
+			do_status(arg)
 		else
 			M.generate(arg)
 		end
@@ -183,6 +298,14 @@ function M.setup(opts)
 				for _, sub in ipairs(subcommands) do
 					if sub:find("^" .. parts[2]) then
 						table.insert(matches, sub)
+					end
+				end
+				return matches
+			elseif #parts == 3 and (parts[2] == "login" or parts[2] == "logout" or parts[2] == "status") then
+				local matches = {}
+				for _, name in ipairs(provider_names) do
+					if name:find("^" .. parts[3]) then
+						table.insert(matches, name)
 					end
 				end
 				return matches
@@ -225,7 +348,7 @@ function M.setup(opts)
 						return
 					end
 
-					if not has_api_key() and not auth.is_authenticated() then
+					if not has_provider_credentials() then
 						return
 					end
 
@@ -268,8 +391,14 @@ function M.generate(extra_context)
 		return
 	end
 
-	if not has_api_key() and not auth.is_authenticated() then
-		vim.notify("Not authenticated. Run :AICommit login", vim.log.levels.WARN)
+	local ok, err = config.validate_provider()
+	if not ok then
+		vim.notify(err, vim.log.levels.ERROR)
+		return
+	end
+
+	if not has_provider_credentials() then
+		vim.notify("Provider is not configured or authenticated. Run :AICommit status", vim.log.levels.WARN)
 		return
 	end
 

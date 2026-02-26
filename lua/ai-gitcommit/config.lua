@@ -1,7 +1,11 @@
 ---@class AIGitCommit.ProviderConfig
+---@field api_key? string|fun():string
 ---@field model string
 ---@field endpoint string
 ---@field max_tokens number
+
+---@class AIGitCommit.CopilotProviderConfig: AIGitCommit.ProviderConfig
+---@field client_id string
 
 ---@class AIGitCommit.ContextConfig
 ---@field max_diff_lines? number
@@ -17,10 +21,8 @@
 ---@field debounce_ms? number
 
 ---@class AIGitCommit.Config
----@field api_key? string|fun():string
----@field model string
----@field endpoint string
----@field max_tokens number
+---@field provider? string
+---@field providers table<string, AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig>
 ---@field languages string[]
 ---@field prompt_template? string|fun(default_prompt: string): string
 ---@field context AIGitCommit.ContextConfig
@@ -30,12 +32,37 @@
 
 local M = {}
 
+local supported_providers = {
+	openai = true,
+	anthropic = true,
+	copilot = true,
+}
+
+local default_copilot_client_id = "Iv1.b507a08c87ecfe98"
+
 ---@type AIGitCommit.Config
 local defaults = {
-	api_key = nil,
-	model = "claude-haiku-4-5",
-	endpoint = "https://api.anthropic.com/v1/messages",
-	max_tokens = 500,
+	provider = nil,
+	providers = {
+		openai = {
+			api_key = nil,
+			model = "gpt-4o-mini",
+			endpoint = "https://api.openai.com/v1/chat/completions",
+			max_tokens = 500,
+		},
+		anthropic = {
+			api_key = nil,
+			model = "claude-haiku-4-5",
+			endpoint = "https://api.anthropic.com/v1/messages",
+			max_tokens = 500,
+		},
+		copilot = {
+			model = "gpt-4o",
+			endpoint = "https://api.githubcopilot.com/chat/completions",
+			max_tokens = 500,
+			client_id = default_copilot_client_id,
+		},
+	},
 
 	languages = { "English", "Chinese", "Japanese", "Korean" },
 	prompt_template = nil,
@@ -113,13 +140,38 @@ function M.get()
 	return config
 end
 
----@return AIGitCommit.ProviderConfig
+---@return { name: string, config: AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig }?, string?
 function M.get_provider()
-	return {
-		model = config.model,
-		endpoint = config.endpoint,
-		max_tokens = config.max_tokens,
-	}
+	local provider_name = config.provider
+	if not provider_name or provider_name == "" then
+		return nil, "No provider configured. Set `provider = \"openai\"|\"anthropic\"|\"copilot\"`"
+	end
+
+	if not supported_providers[provider_name] then
+		return nil, "Unsupported provider: " .. provider_name
+	end
+
+	local provider_config = config.providers and config.providers[provider_name]
+	if not provider_config then
+		return nil, "Missing provider config for: " .. provider_name
+	end
+
+	return { name = provider_name, config = provider_config }, nil
+end
+
+---@param provider string
+---@return boolean
+function M.is_supported_provider(provider)
+	return supported_providers[provider] == true
+end
+
+---@return boolean, string?
+function M.validate_provider()
+	local provider, err = M.get_provider()
+	if not provider then
+		return false, err
+	end
+	return true, nil
 end
 
 function M.reset()

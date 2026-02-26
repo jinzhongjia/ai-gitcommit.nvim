@@ -15,7 +15,7 @@ local M = {}
 ---@param on_error fun(err: string)
 ---@return AIGitCommit.StreamHandle?
 function M.request(opts, on_chunk, on_done, on_error)
-	local args = { "curl", "-s", "-N", "-X", opts.method or "POST", "--fail-with-body" }
+	local args = { "curl", "-s", "-S", "-N", "-X", opts.method or "POST", "--fail-with-body" }
 
 	for key, value in pairs(opts.headers or {}) do
 		table.insert(args, "-H")
@@ -106,6 +106,8 @@ function M.request(opts, on_chunk, on_done, on_error)
 				local ok, data = pcall(vim.json.decode, stdout_full)
 				if ok and data and data.error then
 					on_error(data.error.message or "API error")
+				elseif vim.trim(stdout_full) ~= "" then
+					on_error(vim.trim(stdout_full))
 				else
 					local err_msg = #stderr_chunks > 0 and table.concat(stderr_chunks, "")
 						or "Request failed (HTTP error)"

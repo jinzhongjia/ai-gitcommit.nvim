@@ -1,12 +1,16 @@
 # ai-gitcommit.nvim
 
-AI-powered git commit message generator for Neovim using Anthropic Claude.
+AI-powered git commit message generator for Neovim.
+
+Supported providers:
+- OpenAI
+- Anthropic
+- GitHub Copilot (OAuth)
 
 ## Requirements
 
 - Neovim 0.11+
 - curl
-- Anthropic account (free tier available)
 
 ## Installation
 
@@ -15,37 +19,76 @@ AI-powered git commit message generator for Neovim using Anthropic Claude.
 {
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
-  opts = {},
+  opts = {
+    provider = "openai",
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+      },
+    },
+  },
 }
 ```
 
-## Setup
+## Important Migration Note
 
-1. Install the plugin
-2. Run `:AICommit login` to authenticate with Anthropic
-3. Stage your changes with `git add`
-4. Run `git commit` and use `:AICommit` to generate a message
+Old flat config is no longer supported. You must configure:
+- `provider`
+- `providers.<name>`
+
+If `provider` is not set, `:AICommit` fails with a configuration error.
 
 ## Usage
 
 ```vim
 :AICommit                       " Generate commit message
 :AICommit [context]             " Generate with extra context
-:AICommit login                 " OAuth login to Anthropic
-:AICommit logout                " Logout from Anthropic
-:AICommit status                " Show auth status
+:AICommit login <provider>      " OAuth login (anthropic/copilot)
+:AICommit logout <provider>     " OAuth logout
+:AICommit status                " Show provider status
+:AICommit status <provider>     " Show one provider status
+```
+
+Examples:
+
+```vim
+:AICommit login copilot
+:AICommit login anthropic
+:AICommit status
 ```
 
 ## Configuration
 
 ```lua
 require("ai-gitcommit").setup({
-  model = "claude-haiku-4-5",
-  endpoint = "https://api.anthropic.com/v1/messages",
-  max_tokens = 500,
+  provider = "openai", -- required: "openai" | "anthropic" | "copilot"
+
+  providers = {
+    openai = {
+      api_key = vim.env.OPENAI_API_KEY,
+      model = "gpt-4o-mini",
+      endpoint = "https://api.openai.com/v1/chat/completions",
+      max_tokens = 500,
+    },
+
+    anthropic = {
+      api_key = vim.env.ANTHROPIC_API_KEY,
+      model = "claude-haiku-4-5",
+      endpoint = "https://api.anthropic.com/v1/messages",
+      max_tokens = 500,
+    },
+
+    copilot = {
+      model = "gpt-4o",
+      endpoint = "https://api.githubcopilot.com/chat/completions",
+      max_tokens = 500,
+      client_id = nil, -- optional override, built-in default is used if nil
+    },
+  },
+
   languages = { "English", "Chinese", "Japanese", "Korean" },
-  prompt_template = nil, -- custom prompt template (optional)
-  keymap = nil, -- e.g. "<leader>gc"
+  prompt_template = nil,
+  keymap = nil,
   context = {
     max_diff_lines = 500,
     max_diff_chars = 15000,
@@ -53,37 +96,34 @@ require("ai-gitcommit").setup({
   filter = {
     exclude_patterns = { "%.lock$", "package%-lock%.json$" },
     exclude_paths = {},
+    include_only = nil,
+  },
+  auto = {
+    enabled = true,
+    debounce_ms = 450,
   },
 })
 ```
 
-### Custom Prompt Template
+## Copilot OAuth
 
-You can customize the prompt template using placeholders:
+For Copilot, authenticate once:
 
-```lua
-require("ai-gitcommit").setup({
-  prompt_template = [[
-Generate a commit message for these changes.
-Write in {language}. Be concise.
-
-{extra_context}
-
-Files: {staged_files}
-
-Diff:
-{diff}
-
-Respond with ONLY the commit message.
-]]
-})
+```vim
+:AICommit login copilot
 ```
 
-Available placeholders:
-- `{language}` - Selected language
-- `{extra_context}` - User-provided context
-- `{staged_files}` - List of staged files
-- `{diff}` - Git diff content
+The plugin stores OAuth data under your Neovim data dir:
+- Linux/macOS: `stdpath("data")/ai-gitcommit/copilot.json`
+- Windows: equivalent `stdpath("data")` location
+
+## Custom Prompt Template
+
+Placeholders:
+- `{language}`
+- `{extra_context}`
+- `{staged_files}`
+- `{diff}`
 
 ## License
 
