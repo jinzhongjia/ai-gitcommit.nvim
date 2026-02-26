@@ -105,6 +105,11 @@ require("ai-gitcommit").setup({
 })
 ```
 
+Provider config validation:
+- `providers.<name>.model` must be a non-empty string
+- `providers.<name>.endpoint` must be a non-empty string
+- `providers.<name>.max_tokens` must be greater than 0
+
 ## Copilot OAuth
 
 For Copilot, authenticate once:

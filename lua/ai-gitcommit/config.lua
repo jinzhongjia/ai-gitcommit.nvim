@@ -38,7 +38,7 @@ local supported_providers = {
 	copilot = true,
 }
 
-local default_copilot_client_id = "Iv1.b507a08c87ecfe98"
+local default_copilot_client_id = "Ov23li8tweQw6odWQebz"
 
 ---@type AIGitCommit.Config
 local defaults = {
@@ -171,6 +171,20 @@ function M.validate_provider()
 	if not provider then
 		return false, err
 	end
+
+	if type(provider.config.model) ~= "string" or provider.config.model == "" then
+		return false, "Invalid provider model for: " .. provider.name
+	end
+
+	if type(provider.config.endpoint) ~= "string" or provider.config.endpoint == "" then
+		return false, "Invalid provider endpoint for: " .. provider.name
+	end
+
+	local max_tokens = provider.config.max_tokens
+	if type(max_tokens) ~= "number" or max_tokens <= 0 then
+		return false, "Invalid provider max_tokens for: " .. provider.name
+	end
+
 	return true, nil
 end
 

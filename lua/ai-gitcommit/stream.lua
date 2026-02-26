@@ -34,6 +34,48 @@ function M.request(opts, on_chunk, on_done, on_error)
 	local stdout_chunks = {}
 	local stdout_buffer = ""
 	local has_error = false
+	local sse_data_lines = {}
+
+	---@param chunk table
+	local function handle_chunk(chunk)
+		if chunk.type == "error" and chunk.error then
+			has_error = true
+			vim.schedule(function()
+				on_error(chunk.error.message or "API error")
+			end)
+			return
+		end
+
+		if chunk.error then
+			has_error = true
+			vim.schedule(function()
+				on_error(chunk.error.message or chunk.error or "API error")
+			end)
+			return
+		end
+
+		vim.schedule(function()
+			on_chunk(chunk)
+		end)
+	end
+
+	local function flush_sse_event()
+		if #sse_data_lines == 0 then
+			return
+		end
+
+		local payload = table.concat(sse_data_lines, "\n")
+		sse_data_lines = {}
+
+		if payload == "[DONE]" or payload == "" then
+			return
+		end
+
+		local ok, chunk = pcall(vim.json.decode, payload)
+		if ok and chunk then
+			handle_chunk(chunk)
+		end
+	end
 
 	---@param data string?
 	local function process_stdout(_, data)
@@ -48,37 +90,15 @@ function M.request(opts, on_chunk, on_done, on_error)
 
 		for i = 1, #lines - 1 do
 			local line = lines[i]
-			if line:match("^data: ") then
-				local json_str = line:sub(7)
-				if json_str ~= "[DONE]" then
-					local ok, chunk = pcall(vim.json.decode, json_str)
-					if ok and chunk then
-						if chunk.type == "error" and chunk.error then
-							has_error = true
-							vim.schedule(function()
-								on_error(chunk.error.message or "API error")
-							end)
-						else
-							vim.schedule(function()
-								on_chunk(chunk)
-							end)
-						end
-					end
-				end
-			elseif line ~= "" and not line:match("^event: ") then
+			if line == "" then
+				flush_sse_event()
+			elseif line:match("^data:") then
+				local json_str = line:gsub("^data:%s?", "")
+				table.insert(sse_data_lines, json_str)
+			elseif line ~= "" and not line:match("^event:") then
 				local ok, chunk = pcall(vim.json.decode, line)
 				if ok and chunk then
-					if chunk.type == "error" and chunk.error then
-						has_error = true
-						vim.schedule(function()
-							on_error(chunk.error.message or "API error")
-						end)
-					elseif chunk.error then
-						has_error = true
-						vim.schedule(function()
-							on_error(chunk.error.message or "API error")
-						end)
-					end
+					handle_chunk(chunk)
 				end
 			end
 		end
@@ -96,6 +116,10 @@ function M.request(opts, on_chunk, on_done, on_error)
 		stderr = process_stderr,
 	}, function(obj)
 		vim.schedule(function()
+			if #sse_data_lines > 0 then
+				flush_sse_event()
+			end
+
 			if has_error then
 				return
 			end

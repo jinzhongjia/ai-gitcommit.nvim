@@ -2,6 +2,29 @@ local stream = require("ai-gitcommit.stream")
 
 local M = {}
 
+---@param err string
+---@return string
+local function map_copilot_error(err)
+	local msg = err or ""
+	local lowered = msg:lower()
+
+	if lowered:find("access to this endpoint is forbidden", 1, true)
+		or lowered:find("forbidden", 1, true)
+		or lowered:find("403", 1, true)
+	then
+		return "GitHub Copilot request was forbidden (403). Re-run :AICommit login copilot, "
+			.. "then verify this account has Copilot access. If it still fails, "
+			.. "set providers.copilot.client_id to a valid OAuth app client id."
+	end
+
+	if lowered:find("404", 1, true) or lowered:find("not found", 1, true) then
+		return "GitHub Copilot endpoint not found. Check providers.copilot.endpoint "
+			.. "(recommended: https://api.githubcopilot.com/chat/completions)."
+	end
+
+	return msg
+end
+
 ---@param prompt string
 ---@param config AIGitCommit.ProviderConfig
 ---@param on_chunk fun(content: string)
@@ -38,7 +61,9 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 				on_chunk(content)
 			end
 		end
-	end, on_done, on_error)
+	end, on_done, function(err)
+		on_error(map_copilot_error(err))
+	end)
 end
 
 return M

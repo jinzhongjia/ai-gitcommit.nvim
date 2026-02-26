@@ -4,7 +4,7 @@ local M = {}
 
 local DEVICE_CODE_URL = "https://github.com/login/device/code"
 local ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
-local DEFAULT_CLIENT_ID = "Iv1.b507a08c87ecfe98"
+local DEFAULT_CLIENT_ID = "Ov23li8tweQw6odWQebz"
 local SCOPE = "read:user"
 local IS_WINDOWS = vim.fn.has("win32") == 1
 

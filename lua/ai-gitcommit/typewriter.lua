@@ -177,14 +177,18 @@ function M:flush()
 	end
 
 	for _, chunk in ipairs(self.queue) do
-		for i = 1, #chunk do
-			local char = chunk:sub(i, i)
+		local pos = 1
+		while pos <= #chunk do
+			local byte = chunk:byte(pos)
+			local len = utf8_char_length(byte)
+			local char = chunk:sub(pos, pos + len - 1)
 			if char == "\n" then
 				table.insert(self.displayed, "")
 			else
 				local last_idx = #self.displayed
 				self.displayed[last_idx] = self.displayed[last_idx] .. char
 			end
+			pos = pos + len
 		end
 	end
 	self.queue = {}

@@ -101,6 +101,11 @@ Custom prompt placeholders:
   - {staged_files}
   - {diff}
 
+Provider config validation:
+  - providers.<name>.model must be non-empty string
+  - providers.<name>.endpoint must be non-empty string
+  - providers.<name>.max_tokens must be > 0
+
 ==============================================================================
 3. COMMANDS                                       *ai-gitcommit-commands*
 

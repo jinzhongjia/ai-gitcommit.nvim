@@ -366,7 +366,7 @@ function M.setup(opts)
 					local languages = config.get().languages
 
 					if #languages == 1 then
-						do_generate(languages[1], nil, bufnr, true)
+						do_generate(languages[1], nil, bufnr, false)
 						return
 					end
 

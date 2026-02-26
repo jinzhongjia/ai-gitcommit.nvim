@@ -73,6 +73,40 @@ T["validate_provider"]["fails on unsupported provider"] = function()
 	MiniTest.expect.equality(type(err), "string")
 end
 
+T["validate_provider"]["fails on empty model"] = function()
+	helpers.reset_config()
+	local config = require("ai-gitcommit.config")
+	config.setup({
+		provider = "openai",
+		providers = {
+			openai = {
+				model = "",
+			},
+		},
+	})
+
+	local ok, err = config.validate_provider()
+	MiniTest.expect.equality(ok, false)
+	MiniTest.expect.equality(type(err), "string")
+end
+
+T["validate_provider"]["fails on invalid max_tokens"] = function()
+	helpers.reset_config()
+	local config = require("ai-gitcommit.config")
+	config.setup({
+		provider = "copilot",
+		providers = {
+			copilot = {
+				max_tokens = 0,
+			},
+		},
+	})
+
+	local ok, err = config.validate_provider()
+	MiniTest.expect.equality(ok, false)
+	MiniTest.expect.equality(type(err), "string")
+end
+
 T["reset"] = new_set()
 
 T["reset"]["restores defaults"] = function()
