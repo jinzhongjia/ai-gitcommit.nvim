@@ -374,7 +374,7 @@ function M.setup(opts)
 						if not choice then
 							return
 						end
-						do_generate(choice, nil, bufnr, true)
+						do_generate(choice, nil, bufnr, false)
 					end)
 				end, debounce_ms)
 			end,
