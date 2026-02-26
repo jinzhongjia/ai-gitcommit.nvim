@@ -11,6 +11,7 @@ local M = {}
 ---@field private interval_ms number
 ---@field private chars_per_tick number
 ---@field private running boolean
+---@field private done_callback? fun()
 
 ---@param byte number
 ---@return number
@@ -46,6 +47,7 @@ function M.new(opts)
 		interval_ms = opts.interval_ms or 12,
 		chars_per_tick = opts.chars_per_tick or 4,
 		running = false,
+		done_callback = nil,
 	}
 
 	return setmetatable(self, { __index = M })
@@ -121,6 +123,11 @@ function M:_tick()
 		self:_schedule_tick()
 	else
 		self.running = false
+		if self.done_callback then
+			local cb = self.done_callback
+			self.done_callback = nil
+			cb()
+		end
 	end
 end
 
@@ -199,6 +206,17 @@ function M:stop()
 	self.queue_len = 0
 	self.displayed = { "" }
 	self.written_lines = 0
+	self.done_callback = nil
+end
+
+---@param callback fun()
+function M:finish(callback)
+	if self.queue_len == 0 and not self.running then
+		callback()
+		return
+	end
+
+	self.done_callback = callback
 end
 
 return M

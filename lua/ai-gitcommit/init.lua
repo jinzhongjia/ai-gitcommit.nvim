@@ -214,12 +214,13 @@ local function do_generate(language, extra_context, bufnr, silent)
 				provider.generate(final_prompt, provider_config, function(chunk)
 					tw:push(chunk)
 				end, function()
-					tw:flush()
-					generating_buffers[bufnr] = nil
-					generated_buffers[bufnr] = true
-					if not silent then
-						vim.notify("Commit message generated!", vim.log.levels.INFO)
-					end
+					tw:finish(function()
+						generating_buffers[bufnr] = nil
+						generated_buffers[bufnr] = true
+						if not silent then
+							vim.notify("Commit message generated!", vim.log.levels.INFO)
+						end
+					end)
 				end, function(gen_err)
 					tw:stop()
 					generating_buffers[bufnr] = nil
