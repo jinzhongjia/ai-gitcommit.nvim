@@ -292,9 +292,15 @@ function M.setup(opts)
 		nargs = "*",
 		complete = function(_, line)
 			local parts = vim.split(line, "%s+", { trimempty = true })
+			local has_trailing_space = line:match("%s$") ~= nil
+
 			if #parts == 1 then
 				return { "login", "logout", "status" }
 			elseif #parts == 2 then
+				if has_trailing_space and (parts[2] == "login" or parts[2] == "logout" or parts[2] == "status") then
+					return provider_names
+				end
+
 				local matches = {}
 				for _, sub in ipairs(subcommands) do
 					if sub:find("^" .. parts[2]) then
@@ -303,6 +309,10 @@ function M.setup(opts)
 				end
 				return matches
 			elseif #parts == 3 and (parts[2] == "login" or parts[2] == "logout" or parts[2] == "status") then
+				if has_trailing_space then
+					return {}
+				end
+
 				local matches = {}
 				for _, name in ipairs(provider_names) do
 					if name:find("^" .. parts[3]) then
