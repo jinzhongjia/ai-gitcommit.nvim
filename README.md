@@ -110,6 +110,12 @@ Provider config validation:
 - `providers.<name>.endpoint` must be a non-empty string
 - `providers.<name>.max_tokens` must be greater than 0
 
+Diff context behavior:
+- `filter.exclude_patterns` removes files by filename pattern
+- `filter.exclude_paths` removes files by path pattern
+- `filter.include_only` (when non-empty) keeps only matching files
+- context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
+
 ## Copilot OAuth
 
 For Copilot, authenticate once:

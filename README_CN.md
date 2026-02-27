@@ -6,7 +6,7 @@ AI 驱动的 Neovim git commit 信息生成器。
 
 - Neovim 0.11+
 - curl
-- API key (OpenAI/Anthropic) 或 GitHub Copilot
+- API key（OpenAI/Anthropic）或 GitHub Copilot（OAuth）
 
 ## 安装
 
@@ -16,32 +16,68 @@ AI 驱动的 Neovim git commit 信息生成器。
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
   opts = {
-    provider = "openai", -- "openai" | "anthropic" | "copilot"
-    language = "Chinese", -- 中文 commit message
+    provider = "openai", -- 必填: "openai" | "anthropic" | "copilot"
+    providers = {
+      openai = {
+        api_key = vim.env.OPENAI_API_KEY,
+      },
+    },
+    languages = { "Chinese", "English" },
   },
 }
 ```
+
+## 迁移说明
+
+旧版平铺配置已不再支持。必须配置：
+- `provider`
+- `providers.<name>`
+
+如果未设置 `provider`，`:AICommit` 会直接报配置错误。
 
 ## 使用
 
 ```vim
 :AICommit                       " 生成 commit message
 :AICommit [附加说明]             " 带上下文生成
-:AICommit login copilot         " OAuth 登录
-:AICommit logout copilot        " OAuth 登出
-:AICommit status                " 查看认证状态
+:AICommit login <provider>      " OAuth 登录（anthropic/copilot）
+:AICommit logout <provider>     " 退出登录
+:AICommit status                " 查看全部 provider 状态
+:AICommit status <provider>     " 查看单个 provider 状态
 ```
 
 ## 配置
 
 ```lua
 require("ai-gitcommit").setup({
-  model = "claude-haiku-4-5",
-  endpoint = "https://api.anthropic.com/v1/messages",
-  max_tokens = 500,
-  languages = { "Chinese", "English" }, -- 支持的语言
-  prompt_template = nil, -- 自定义 prompt 模板（可选）
-  keymap = nil, -- 如 "<leader>gc"
+  provider = "openai", -- 必填
+
+  providers = {
+    openai = {
+      api_key = vim.env.OPENAI_API_KEY,
+      model = "gpt-4o-mini",
+      endpoint = "https://api.openai.com/v1/chat/completions",
+      max_tokens = 500,
+    },
+
+    anthropic = {
+      api_key = vim.env.ANTHROPIC_API_KEY,
+      model = "claude-haiku-4-5",
+      endpoint = "https://api.anthropic.com/v1/messages",
+      max_tokens = 500,
+    },
+
+    copilot = {
+      model = "gpt-4o",
+      endpoint = "https://api.githubcopilot.com/chat/completions",
+      max_tokens = 500,
+      client_id = nil, -- 可选，nil 表示使用内置默认值
+    },
+  },
+
+  languages = { "Chinese", "English" },
+  prompt_template = nil,
+  keymap = nil,
   context = {
     max_diff_lines = 500,
     max_diff_chars = 15000,
@@ -49,9 +85,31 @@ require("ai-gitcommit").setup({
   filter = {
     exclude_patterns = { "%.lock$", "package%-lock%.json$" },
     exclude_paths = {},
+    include_only = nil,
+  },
+  auto = {
+    enabled = true,
+    debounce_ms = 450,
   },
 })
 ```
+
+Provider 配置校验：
+- `providers.<name>.model` 必须是非空字符串
+- `providers.<name>.endpoint` 必须是非空字符串
+- `providers.<name>.max_tokens` 必须大于 0
+
+## Copilot OAuth
+
+首次使用 Copilot 需要登录：
+
+```vim
+:AICommit login copilot
+```
+
+OAuth 数据存储路径：
+- Linux/macOS: `stdpath("data")/ai-gitcommit/copilot.json`
+- Windows: 对应 `stdpath("data")` 目录
 
 ### 自定义 Prompt 模板
 

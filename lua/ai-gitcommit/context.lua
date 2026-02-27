@@ -1,5 +1,18 @@
 local M = {}
 
+---@param filename string
+---@param rules string[]
+---@return boolean
+local function matches_any_rule(filename, rules)
+	for _, rule in ipairs(rules or {}) do
+		if filename:match(rule) then
+			return true
+		end
+	end
+
+	return false
+end
+
 ---@param text string
 ---@return number
 function M.estimate_tokens(text)
@@ -10,19 +23,37 @@ end
 ---@param patterns string[]
 ---@return boolean
 function M.should_exclude_file(filename, patterns)
-	for _, pattern in ipairs(patterns) do
-		if filename:match(pattern) then
-			return true
-		end
+	return matches_any_rule(filename, patterns)
+end
+
+---@param filename string
+---@param config AIGitCommit.Config
+---@return boolean
+local function should_keep_file(filename, config)
+	local filter = config.filter or {}
+	local include_only = filter.include_only or {}
+	local exclude_paths = filter.exclude_paths or {}
+	local exclude_patterns = filter.exclude_patterns or {}
+
+	if #include_only > 0 and not matches_any_rule(filename, include_only) then
+		return false
 	end
-	return false
+
+	if matches_any_rule(filename, exclude_paths) then
+		return false
+	end
+
+	if M.should_exclude_file(filename, exclude_patterns) then
+		return false
+	end
+
+	return true
 end
 
 ---@param diff string
 ---@param config AIGitCommit.Config
 ---@return string
 function M.filter_diff(diff, config)
-	local patterns = config.filter.exclude_patterns or {}
 	local lines = vim.split(diff, "\n")
 	local result = {}
 	local skip_file = false
@@ -30,7 +61,7 @@ function M.filter_diff(diff, config)
 	for _, line in ipairs(lines) do
 		local file = line:match("^diff %-%-git a/(.-) b/")
 		if file then
-			skip_file = M.should_exclude_file(file, patterns)
+			skip_file = not should_keep_file(file, config)
 		end
 
 		if not skip_file then
@@ -39,6 +70,30 @@ function M.filter_diff(diff, config)
 	end
 
 	return table.concat(result, "\n")
+end
+
+---@param diff string
+---@param max_lines number?
+---@return string
+function M.truncate_diff_lines(diff, max_lines)
+	if type(max_lines) ~= "number" or max_lines <= 0 then
+		return diff
+	end
+
+	local lines = vim.split(diff, "\n", { plain = true })
+	if #lines <= max_lines then
+		return diff
+	end
+
+	local kept = {}
+	for i = 1, max_lines do
+		kept[i] = lines[i]
+	end
+
+	table.insert(kept, "")
+	table.insert(kept, "[... diff truncated due to line limit ...]")
+
+	return table.concat(kept, "\n")
 end
 
 ---@param diff string
@@ -63,7 +118,8 @@ end
 ---@return string
 function M.build_context(diff, config)
 	local filtered = M.filter_diff(diff, config)
-	return M.truncate_diff(filtered, config.context.max_diff_chars)
+	local by_lines = M.truncate_diff_lines(filtered, config.context.max_diff_lines)
+	return M.truncate_diff(by_lines, config.context.max_diff_chars)
 end
 
 return M

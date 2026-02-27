@@ -84,8 +84,8 @@ Full setup: >
         "%.min%.[jc]ss?$",
         "%.map$",
       },
-      exclude_paths = {},
-      include_only = nil,
+      exclude_paths = {}, -- path rules (Lua patterns)
+      include_only = nil, -- only include matching paths
     },
 
     keymap = nil,
@@ -100,6 +100,13 @@ Custom prompt placeholders:
   - {extra_context}
   - {staged_files}
   - {diff}
+
+Diff context behavior:
+  - Files matching `exclude_patterns` are removed.
+  - Files matching `exclude_paths` are removed.
+  - If `include_only` is non-empty, only matching files are included.
+  - Context is truncated by `context.max_diff_lines`, then by
+    `context.max_diff_chars`.
 
 Provider config validation:
   - providers.<name>.model must be non-empty string

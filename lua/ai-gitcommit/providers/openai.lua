@@ -15,6 +15,7 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 			{ role = "user", content = prompt },
 		},
 		stream = true,
+		stream_options = { include_usage = true },
 	}
 
 	stream.request({

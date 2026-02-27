@@ -58,6 +58,48 @@ diff --git a/src/utils.lua b/src/utils.lua
 	MiniTest.expect.equality(filtered:find("utils.lua") ~= nil, true)
 end
 
+T["filter_diff"]["respects exclude_paths"] = function()
+	local diff = [[
+diff --git a/src/main.lua b/src/main.lua
++local x = 1
+diff --git a/vendor/lib.lua b/vendor/lib.lua
++local ignored = true
+]]
+
+	local cfg = {
+		filter = {
+			exclude_patterns = {},
+			exclude_paths = { "^vendor/" },
+			include_only = nil,
+		},
+	}
+
+	local filtered = context.filter_diff(diff, cfg)
+	MiniTest.expect.equality(filtered:find("vendor/lib.lua", 1, true), nil)
+	MiniTest.expect.equality(filtered:find("src/main.lua", 1, true) ~= nil, true)
+end
+
+T["filter_diff"]["respects include_only"] = function()
+	local diff = [[
+diff --git a/lua/a.lua b/lua/a.lua
++local a = true
+diff --git a/tests/a.lua b/tests/a.lua
++local b = true
+]]
+
+	local cfg = {
+		filter = {
+			exclude_patterns = {},
+			exclude_paths = {},
+			include_only = { "^lua/" },
+		},
+	}
+
+	local filtered = context.filter_diff(diff, cfg)
+	MiniTest.expect.equality(filtered:find("lua/a.lua", 1, true) ~= nil, true)
+	MiniTest.expect.equality(filtered:find("tests/a.lua", 1, true), nil)
+end
+
 T["truncate_diff"] = new_set()
 
 T["truncate_diff"]["returns original if under limit"] = function()
@@ -70,6 +112,14 @@ T["truncate_diff"]["truncates at newline boundary"] = function()
 	local diff = "line1\nline2\nline3\nline4"
 	local truncated = context.truncate_diff(diff, 12)
 	MiniTest.expect.equality(truncated:find("truncated") ~= nil, true)
+end
+
+T["truncate_diff"]["truncates by max lines"] = function()
+	local diff = "line1\nline2\nline3\nline4"
+	local truncated = context.truncate_diff_lines(diff, 2)
+	MiniTest.expect.equality(truncated:find("line1", 1, true) ~= nil, true)
+	MiniTest.expect.equality(truncated:find("line3", 1, true), nil)
+	MiniTest.expect.equality(truncated:find("line limit", 1, true) ~= nil, true)
 end
 
 T["build_context"] = new_set()

@@ -1,6 +1,7 @@
 local stream = require("ai-gitcommit.stream")
 
 local M = {}
+local version = vim.version()
 
 ---@param err string
 ---@return string
@@ -45,11 +46,9 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 		method = "POST",
 		headers = {
 			["Content-Type"] = "application/json",
-			["Accept"] = "text/event-stream",
 			["Authorization"] = "Bearer " .. config.api_key,
-			["Openai-Intent"] = "conversation-edits",
-			["x-initiator"] = "user",
-			["Editor-Version"] = "Neovim/0.11.0",
+			["Copilot-Integration-Id"] = "vscode-chat",
+			["Editor-Version"] = string.format("Neovim/%d.%d.%d", version.major, version.minor, version.patch),
 			["Editor-Plugin-Version"] = "ai-gitcommit.nvim/0.1.0",
 			["User-Agent"] = "ai-gitcommit.nvim",
 		},
