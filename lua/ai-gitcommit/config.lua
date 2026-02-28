@@ -1,5 +1,10 @@
 ---@class AIGitCommit.ProviderConfig
 ---@field api_key? string|fun():string
+---@field api_key_required? boolean
+---@field api_key_header? string
+---@field api_key_prefix? string
+---@field extra_headers? table<string, string>
+---@field stream_options? boolean
 ---@field model string
 ---@field endpoint string
 ---@field max_tokens number
@@ -46,6 +51,11 @@ local defaults = {
 	providers = {
 		openai = {
 			api_key = nil,
+			api_key_required = true,
+			api_key_header = "Authorization",
+			api_key_prefix = "Bearer ",
+			extra_headers = {},
+			stream_options = true,
 			model = "gpt-4o-mini",
 			endpoint = "https://api.openai.com/v1/chat/completions",
 			max_tokens = 500,

@@ -66,6 +66,11 @@ require("ai-gitcommit").setup({
   providers = {
     openai = {
       api_key = vim.env.OPENAI_API_KEY,
+      api_key_required = true,
+      api_key_header = "Authorization",
+      api_key_prefix = "Bearer ",
+      extra_headers = {},
+      stream_options = true,
       model = "gpt-4o-mini",
       endpoint = "https://api.openai.com/v1/chat/completions",
       max_tokens = 500,
@@ -109,6 +114,13 @@ Provider config validation:
 - `providers.<name>.model` must be a non-empty string
 - `providers.<name>.endpoint` must be a non-empty string
 - `providers.<name>.max_tokens` must be greater than 0
+
+OpenAI-compatible endpoints:
+- Reuse the `openai` provider and set `providers.openai.endpoint`
+- For local/self-hosted endpoints without auth, set `api_key_required = false`
+- For non-Bearer auth, set `api_key_header` and `api_key_prefix`
+- Add vendor-specific headers via `extra_headers`
+- Set `stream_options = false` if endpoint rejects OpenAI stream options
 
 Diff context behavior:
 - `filter.exclude_patterns` removes files by filename pattern

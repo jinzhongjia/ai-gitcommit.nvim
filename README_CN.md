@@ -55,6 +55,11 @@ require("ai-gitcommit").setup({
   providers = {
     openai = {
       api_key = vim.env.OPENAI_API_KEY,
+      api_key_required = true,
+      api_key_header = "Authorization",
+      api_key_prefix = "Bearer ",
+      extra_headers = {},
+      stream_options = true,
       model = "gpt-4o-mini",
       endpoint = "https://api.openai.com/v1/chat/completions",
       max_tokens = 500,
@@ -98,6 +103,13 @@ Provider 配置校验：
 - `providers.<name>.model` 必须是非空字符串
 - `providers.<name>.endpoint` 必须是非空字符串
 - `providers.<name>.max_tokens` 必须大于 0
+
+OpenAI 兼容接口：
+- 继续使用 `openai` provider，只需改 `providers.openai.endpoint`
+- 无鉴权本地服务可设置 `api_key_required = false`
+- 非 Bearer 鉴权可配置 `api_key_header` 和 `api_key_prefix`
+- 额外请求头通过 `extra_headers` 传入
+- 若服务不支持 OpenAI `stream_options`，可设置 `stream_options = false`
 
 ## Copilot OAuth
 

@@ -30,6 +30,12 @@ local function resolve_api_key(api_key)
 	return api_key
 end
 
+---@param provider_config AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig
+---@return boolean
+local function openai_requires_api_key(provider_config)
+	return provider_config.api_key_required ~= false
+end
+
 ---@return boolean
 local function has_provider_credentials()
 	local provider, _ = config.get_provider()
@@ -38,6 +44,9 @@ local function has_provider_credentials()
 	end
 
 	if provider.name == "openai" then
+		if not openai_requires_api_key(provider.config) then
+			return true
+		end
 		return resolve_api_key(provider.config.api_key) ~= nil
 	end
 
@@ -124,6 +133,9 @@ local function provider_status(provider)
 		local provider_info, _ = config.get_provider()
 		local openai_config = provider_info and provider_info.name == "openai" and provider_info.config
 			or config.get().providers.openai
+		if openai_config and not openai_requires_api_key(openai_config) then
+			return "configured"
+		end
 		local has_key = openai_config and resolve_api_key(openai_config.api_key) ~= nil
 		return has_key and "configured" or "not configured"
 	end
@@ -242,7 +254,7 @@ local function do_generate(language, extra_context, bufnr, silent)
 			local api_key = resolve_api_key(provider_info.config.api_key)
 
 			if provider_info.name == "openai" then
-				if not api_key then
+				if openai_requires_api_key(provider_info.config) and not api_key then
 					generating_buffers[bufnr] = nil
 					if not silent then
 						vim.notify("OpenAI API key not configured", vim.log.levels.ERROR)

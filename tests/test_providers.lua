@@ -73,6 +73,48 @@ T["openai generate"]["sends completion request with stream options"] = function(
 	MiniTest.expect.equality(captured.body.stream_options.include_usage, true)
 	MiniTest.expect.equality(captured.body.messages[1].role, "user")
 	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
+	MiniTest.expect.equality(captured.body.tools, nil)
+end
+
+T["openai generate"]["supports openai-compatible endpoints without bearer auth"] = function()
+	local original_stream = package.loaded["ai-gitcommit.stream"]
+	helpers.unload_module("ai-gitcommit.providers.openai")
+
+	local captured = nil
+	package.loaded["ai-gitcommit.stream"] = {
+		request = function(opts, _, on_done, _)
+			captured = opts
+			on_done()
+			return { system_obj = nil }
+		end,
+	}
+
+	local ok, err = pcall(function()
+		local openai = require("ai-gitcommit.providers.openai")
+		openai.generate("hello", {
+			model = "qwen2.5-coder",
+			max_tokens = 500,
+			endpoint = "http://localhost:11434/v1/chat/completions",
+			api_key = "",
+			api_key_required = false,
+			stream_options = false,
+			extra_headers = {
+				["X-Test-Header"] = "1",
+			},
+		}, function(_) end, function() end, function(_) end)
+	end)
+
+	package.loaded["ai-gitcommit.stream"] = original_stream
+	helpers.unload_module("ai-gitcommit.providers.openai")
+
+	MiniTest.expect.equality(ok, true)
+	MiniTest.expect.equality(err, nil)
+	MiniTest.expect.equality(captured.url, "http://localhost:11434/v1/chat/completions")
+	MiniTest.expect.equality(captured.headers["Authorization"], nil)
+	MiniTest.expect.equality(captured.headers["X-Test-Header"], "1")
+	MiniTest.expect.equality(captured.body.stream, true)
+	MiniTest.expect.equality(captured.body.stream_options, nil)
+	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
 end
 
 T["copilot generate"] = new_set()

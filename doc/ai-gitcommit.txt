@@ -47,6 +47,11 @@ Full setup: >
     providers = {
       openai = {
         api_key = vim.env.OPENAI_API_KEY,
+        api_key_required = true,
+        api_key_header = "Authorization",
+        api_key_prefix = "Bearer ",
+        extra_headers = {},
+        stream_options = true,
         model = "gpt-4o-mini",
         endpoint = "https://api.openai.com/v1/chat/completions",
         max_tokens = 500,
@@ -145,6 +150,14 @@ Notes:
 
 OpenAI:
   Configure `providers.openai.api_key`.
+
+OpenAI-compatible:
+  Reuse the `openai` provider and customize:
+    - `providers.openai.endpoint`
+    - `providers.openai.api_key_required = false` (for no-auth endpoints)
+    - `providers.openai.api_key_header` and `api_key_prefix`
+    - `providers.openai.extra_headers`
+    - `providers.openai.stream_options = false` (if needed)
 
 Anthropic:
   Configure API key, or run: >
