@@ -4,6 +4,7 @@ local M = {}
 
 local DEVICE_CODE_URL = "https://github.com/login/device/code"
 local ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
+local COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 local DEFAULT_CLIENT_ID = "Ov23li8tweQw6odWQebz"
 local SCOPE = "read:user"
 local IS_WINDOWS = vim.fn.has("win32") == 1
@@ -105,6 +106,85 @@ local function decode_error(stdout, fallback)
 	end
 
 	return fallback
+end
+
+---@param github_access_token string
+---@param callback fun(data: table?, err: string?)
+local function fetch_copilot_token(github_access_token, callback)
+	curl({
+		"-s",
+		"-X",
+		"GET",
+		"--fail-with-body",
+		"-H",
+		"Accept: application/json",
+		"-H",
+		"User-Agent: ai-gitcommit.nvim",
+		"-H",
+		"Authorization: Bearer " .. github_access_token,
+		COPILOT_TOKEN_URL,
+	}, function(stdout, exit_code)
+		if exit_code ~= 0 then
+			callback(nil, decode_error(stdout, "Failed to fetch GitHub Copilot token"))
+			return
+		end
+
+		local ok, data = pcall(vim.json.decode, stdout)
+		if not ok or not data then
+			callback(nil, "Invalid Copilot token response")
+			return
+		end
+
+		if not data.token or data.token == "" then
+			local msg = data.message or data.error or "No Copilot token in response"
+			callback(nil, msg)
+			return
+		end
+
+		callback(data, nil)
+	end)
+end
+
+---@param data table?
+---@return boolean
+local function is_copilot_token_valid(data)
+	if not data or type(data.copilot_token) ~= "string" or data.copilot_token == "" then
+		return false
+	end
+
+	if type(data.copilot_expires_at) ~= "number" then
+		return true
+	end
+
+	return data.copilot_expires_at > (os.time() + 30)
+end
+
+---@param data table
+---@param callback fun(token_data: table?, err: string?)
+local function refresh_copilot_token(data, callback)
+	fetch_copilot_token(data.github_access_token, function(copilot_data, token_err)
+		if token_err then
+			callback(nil, token_err)
+			return
+		end
+
+		local endpoint = nil
+		if copilot_data.endpoints and copilot_data.endpoints.api then
+			endpoint = copilot_data.endpoints.api .. "/chat/completions"
+		end
+
+		local updated = vim.tbl_extend("force", data, {
+			copilot_token = copilot_data.token,
+			copilot_expires_at = copilot_data.expires_at,
+			copilot_refresh_in = copilot_data.refresh_in,
+			copilot_endpoints = copilot_data.endpoints,
+			copilot_created_at = os.time(),
+		})
+
+		write_auth_data(updated)
+
+		callback({ token = copilot_data.token, endpoint = endpoint }, nil)
+	end)
 end
 
 ---@param callback fun(data: table?, err: string?)
@@ -234,7 +314,16 @@ function M.get_token(callback)
 		return
 	end
 
-	callback({ token = data.github_access_token }, nil)
+	if is_copilot_token_valid(data) then
+		local endpoint = nil
+		if data.copilot_endpoints and data.copilot_endpoints.api then
+			endpoint = data.copilot_endpoints.api .. "/chat/completions"
+		end
+		callback({ token = data.copilot_token, endpoint = endpoint }, nil)
+		return
+	end
+
+	refresh_copilot_token(data, callback)
 end
 
 ---@param callback fun(data: table?, err: string?)
@@ -267,14 +356,32 @@ function M.login(callback)
 				return
 			end
 
-			write_auth_data({
-				github_access_token = access_data.access_token,
-				github_token_type = access_data.token_type,
-				github_scope = access_data.scope,
-				created_at = os.time(),
-			})
+			fetch_copilot_token(access_data.access_token, function(copilot_data, token_err)
+				if token_err then
+					callback(nil, token_err)
+					return
+				end
 
-			callback({ token = access_data.access_token }, nil)
+				local auth_data = {
+					github_access_token = access_data.access_token,
+					github_token_type = access_data.token_type,
+					github_scope = access_data.scope,
+					copilot_token = copilot_data.token,
+					copilot_expires_at = copilot_data.expires_at,
+					copilot_refresh_in = copilot_data.refresh_in,
+					copilot_endpoints = copilot_data.endpoints,
+					created_at = os.time(),
+				}
+
+				write_auth_data(auth_data)
+
+				local endpoint = nil
+				if copilot_data.endpoints and copilot_data.endpoints.api then
+					endpoint = copilot_data.endpoints.api .. "/chat/completions"
+				end
+
+				callback({ token = copilot_data.token, endpoint = endpoint }, nil)
+			end)
 		end)
 	end)
 end

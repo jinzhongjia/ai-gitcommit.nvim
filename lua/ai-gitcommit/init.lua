@@ -198,7 +198,7 @@ local function do_generate(language, extra_context, bufnr, silent)
 				diff = processed_diff,
 			})
 
-			local function run_generate(api_key)
+			local function run_generate(api_key, endpoint_override)
 				local provider_info, provider_err = config.get_provider()
 				if not provider_info then
 					generating_buffers[bufnr] = nil
@@ -211,6 +211,9 @@ local function do_generate(language, extra_context, bufnr, silent)
 				local provider_config = vim.deepcopy(provider_info.config)
 				if api_key then
 					provider_config.api_key = api_key
+				end
+				if endpoint_override then
+					provider_config.endpoint = endpoint_override
 				end
 
 				local provider = providers.get(provider_info.name)
@@ -278,7 +281,7 @@ local function do_generate(language, extra_context, bufnr, silent)
 					end
 					return
 				end
-				run_generate(token_data.token)
+				run_generate(token_data.token, token_data.endpoint)
 			end)
 		end)
 	end)
