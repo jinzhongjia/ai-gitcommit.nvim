@@ -89,7 +89,7 @@ function M.request(opts, on_chunk, on_done, on_error)
 		stdout_buffer = lines[#lines]
 
 		for i = 1, #lines - 1 do
-			local line = lines[i]
+			local line = lines[i]:gsub("\r$", "")
 			if line == "" then
 				flush_sse_event()
 			elseif line:match("^data:") then

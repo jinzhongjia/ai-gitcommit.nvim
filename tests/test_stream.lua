@@ -71,4 +71,47 @@ T["request"]["builds correct curl args"] = function()
 	MiniTest.expect.equality(done_called or #errors > 0, true)
 end
 
+T["request"]["parses SSE events with CRLF line endings"] = function()
+	local original_system = vim.system
+	local chunks = {}
+	local errors = {}
+	local done_called = false
+
+	vim.system = function(_, opts, cb)
+		opts.stdout(nil, 'data: {"choices":[{"delta":{"content":"feat:"}}]}\r\n\r\n')
+		opts.stdout(nil, 'data: {"choices":[{"delta":{"content":" add tests"}}]}\r\n\r\n')
+		opts.stdout(nil, "data: [DONE]\r\n\r\n")
+		cb({ code = 0 })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _)
+			end,
+		}
+	end
+
+	stream.request({
+		url = "https://example.com",
+	}, function(chunk)
+		table.insert(chunks, chunk)
+	end, function()
+		done_called = true
+	end, function(err)
+		table.insert(errors, err)
+	end)
+
+	vim.wait(500, function()
+		return done_called
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(#errors, 0)
+	MiniTest.expect.equality(done_called, true)
+	MiniTest.expect.equality(#chunks, 2)
+	MiniTest.expect.equality(chunks[1].choices[1].delta.content, "feat:")
+	MiniTest.expect.equality(chunks[2].choices[1].delta.content, " add tests")
+end
+
 return T

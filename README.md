@@ -121,6 +121,7 @@ OpenAI-compatible endpoints:
 - For non-Bearer auth, set `api_key_header` and `api_key_prefix`
 - Add vendor-specific headers via `extra_headers`
 - Set `stream_options = false` if endpoint rejects OpenAI stream options
+- Streaming parser accepts both LF and CRLF SSE line endings
 
 Diff context behavior:
 - `filter.exclude_patterns` removes files by filename pattern

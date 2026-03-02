@@ -158,6 +158,7 @@ OpenAI-compatible:
     - `providers.openai.api_key_header` and `api_key_prefix`
     - `providers.openai.extra_headers`
     - `providers.openai.stream_options = false` (if needed)
+    - Streaming parser accepts LF and CRLF SSE line endings
 
 Anthropic:
   Configure API key, or run: >
