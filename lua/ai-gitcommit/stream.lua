@@ -34,6 +34,8 @@ function M.request(opts, on_chunk, on_done, on_error)
 	local stdout_chunks = {}
 	local stdout_buffer = ""
 	local has_error = false
+	local parsed_chunk_count = 0
+	local decode_error_count = 0
 	local sse_data_lines = {}
 
 	---@param chunk table
@@ -73,7 +75,10 @@ function M.request(opts, on_chunk, on_done, on_error)
 
 		local ok, chunk = pcall(vim.json.decode, payload)
 		if ok and chunk then
+			parsed_chunk_count = parsed_chunk_count + 1
 			handle_chunk(chunk)
+		else
+			decode_error_count = decode_error_count + 1
 		end
 	end
 
@@ -98,7 +103,10 @@ function M.request(opts, on_chunk, on_done, on_error)
 			elseif line ~= "" and not line:match("^event:") then
 				local ok, chunk = pcall(vim.json.decode, line)
 				if ok and chunk then
+					parsed_chunk_count = parsed_chunk_count + 1
 					handle_chunk(chunk)
+				else
+					decode_error_count = decode_error_count + 1
 				end
 			end
 		end
@@ -124,6 +132,12 @@ function M.request(opts, on_chunk, on_done, on_error)
 				return
 			end
 			if obj.code == 0 then
+				if parsed_chunk_count == 0 and decode_error_count > 0 then
+					has_error = true
+					on_error("Failed to parse streaming response")
+					return
+				end
+
 				on_done()
 			else
 				local stdout_full = table.concat(stdout_chunks, "")

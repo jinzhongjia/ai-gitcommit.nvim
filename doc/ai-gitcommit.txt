@@ -144,6 +144,8 @@ Provider config validation:
 Notes:
   - OpenAI uses API key config. `:AICommit login openai` returns guidance.
   - Anthropic and Copilot support OAuth login.
+  - Empty provider output is reported as warning (no false success message).
+  - Git command failures are reported as errors.
 
 ==============================================================================
 4. PROVIDERS                                     *ai-gitcommit-providers*

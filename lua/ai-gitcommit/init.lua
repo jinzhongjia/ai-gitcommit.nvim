@@ -177,8 +177,24 @@ local function do_generate(language, extra_context, bufnr, silent)
 		vim.notify("Generating commit message...", vim.log.levels.INFO)
 	end
 
-	git.get_staged_diff(function(diff)
-		git.get_staged_files(function(files)
+	git.get_staged_diff(function(diff, diff_err)
+		if diff_err then
+			generating_buffers[bufnr] = nil
+			if not silent then
+				vim.notify("Error: " .. diff_err, vim.log.levels.ERROR)
+			end
+			return
+		end
+
+		git.get_staged_files(function(files, files_err)
+			if files_err then
+				generating_buffers[bufnr] = nil
+				if not silent then
+					vim.notify("Error: " .. files_err, vim.log.levels.ERROR)
+				end
+				return
+			end
+
 			if diff == "" then
 				generating_buffers[bufnr] = nil
 				if not silent then
@@ -225,13 +241,25 @@ local function do_generate(language, extra_context, bufnr, silent)
 					interval_ms = 12,
 					chars_per_tick = 4,
 				})
+				local has_content = false
 
 				provider.generate(final_prompt, provider_config, function(chunk)
+					has_content = true
 					tw:push(chunk)
 				end, function()
 					tw:finish(function()
 						generating_buffers[bufnr] = nil
-						generated_buffers[bufnr] = true
+						if not has_content then
+							if not silent then
+								vim.notify("No message content received from provider", vim.log.levels.WARN)
+							end
+							return
+						end
+
+						if vim.api.nvim_buf_is_valid(bufnr) then
+							generated_buffers[bufnr] = true
+						end
+
 						if not silent then
 							vim.notify("Commit message generated!", vim.log.levels.INFO)
 						end

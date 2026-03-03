@@ -14,10 +14,33 @@ local function run_git(cmd, callback)
 	end)
 end
 
----@param callback fun(diff: string)
+---@param stdout string
+---@param stderr string?
+---@param fallback string
+---@return string
+local function build_git_error(stdout, stderr, fallback)
+	local err = stderr and vim.trim(stderr) or ""
+	if err ~= "" then
+		return err
+	end
+
+	local out = stdout and vim.trim(stdout) or ""
+	if out ~= "" then
+		return out
+	end
+
+	return fallback
+end
+
+---@param callback fun(diff: string, err: string?)
 function M.get_staged_diff(callback)
-	run_git({ "diff", "--cached" }, function(stdout)
-		callback(stdout)
+	run_git({ "diff", "--cached" }, function(stdout, code, stderr)
+		if code ~= 0 then
+			callback("", build_git_error(stdout, stderr, "Failed to get staged diff"))
+			return
+		end
+
+		callback(stdout, nil)
 	end)
 end
 
@@ -25,9 +48,14 @@ end
 ---@field status string
 ---@field file string
 
----@param callback fun(files: AIGitCommit.StagedFile[])
+---@param callback fun(files: AIGitCommit.StagedFile[], err: string?)
 function M.get_staged_files(callback)
-	run_git({ "diff", "--cached", "--name-status" }, function(stdout)
+	run_git({ "diff", "--cached", "--name-status" }, function(stdout, code, stderr)
+		if code ~= 0 then
+			callback({}, build_git_error(stdout, stderr, "Failed to get staged files"))
+			return
+		end
+
 		local files = {}
 		for line in stdout:gmatch("[^\n]+") do
 			local status, file = line:match("^(%S+)%s+(.+)$")
@@ -35,7 +63,7 @@ function M.get_staged_files(callback)
 				table.insert(files, { status = status, file = file })
 			end
 		end
-		callback(files)
+		callback(files, nil)
 	end)
 end
 

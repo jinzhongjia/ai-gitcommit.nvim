@@ -114,4 +114,44 @@ T["request"]["parses SSE events with CRLF line endings"] = function()
 	MiniTest.expect.equality(chunks[2].choices[1].delta.content, " add tests")
 end
 
+T["request"]["returns parse error when stream payload is invalid"] = function()
+	local original_system = vim.system
+	local chunks = {}
+	local errors = {}
+	local done_called = false
+
+	vim.system = function(_, opts, cb)
+		opts.stdout(nil, "data: {invalid-json}\n\n")
+		cb({ code = 0 })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _)
+			end,
+		}
+	end
+
+	stream.request({
+		url = "https://example.com",
+	}, function(chunk)
+		table.insert(chunks, chunk)
+	end, function()
+		done_called = true
+	end, function(err)
+		table.insert(errors, err)
+	end)
+
+	vim.wait(500, function()
+		return done_called or #errors > 0
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(done_called, false)
+	MiniTest.expect.equality(#chunks, 0)
+	MiniTest.expect.equality(#errors, 1)
+	MiniTest.expect.equality(errors[1], "Failed to parse streaming response")
+end
+
 return T

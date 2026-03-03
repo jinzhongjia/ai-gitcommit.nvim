@@ -67,6 +67,40 @@ T["get_staged_diff"]["returns string"] = function()
 	MiniTest.expect.equality(type(diff), "string")
 end
 
+T["get_staged_diff"]["returns error when git command fails"] = function()
+	local original_system = vim.system
+	local done = false
+	local diff = nil
+	local err = nil
+
+	vim.system = function(_, _, cb)
+		cb({ code = 128, stdout = "", stderr = "fatal: not a git repository" })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _)
+			end,
+		}
+	end
+
+	git.get_staged_diff(function(result, result_err)
+		diff = result
+		err = result_err
+		done = true
+	end)
+
+	vim.wait(500, function()
+		return done
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(diff, "")
+	MiniTest.expect.equality(type(err), "string")
+end
+
 T["get_staged_files"] = new_set()
 
 T["get_staged_files"]["returns table"] = function()
@@ -106,6 +140,41 @@ T["get_staged_files"]["parses status correctly"] = function()
 			MiniTest.expect.equality(type(f.file), "string")
 		end
 	end
+end
+
+T["get_staged_files"]["returns error when git command fails"] = function()
+	local original_system = vim.system
+	local done = false
+	local files = nil
+	local err = nil
+
+	vim.system = function(_, _, cb)
+		cb({ code = 128, stdout = "", stderr = "fatal: not a git repository" })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _)
+			end,
+		}
+	end
+
+	git.get_staged_files(function(result, result_err)
+		files = result
+		err = result_err
+		done = true
+	end)
+
+	vim.wait(500, function()
+		return done
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(type(files), "table")
+	MiniTest.expect.equality(#files, 0)
+	MiniTest.expect.equality(type(err), "string")
 end
 
 return T

@@ -49,6 +49,10 @@ If `provider` is not set, `:AICommit` fails with a configuration error.
 :AICommit status <provider>     " Show one provider status
 ```
 
+Notes:
+- If provider stream returns no message content, plugin shows a warning instead of success.
+- Git command failures are surfaced as errors instead of being treated as empty staged changes.
+
 Examples:
 
 ```vim
