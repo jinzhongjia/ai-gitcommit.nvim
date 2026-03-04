@@ -10,7 +10,6 @@
 ---@field max_tokens number
 
 ---@class AIGitCommit.CopilotProviderConfig: AIGitCommit.ProviderConfig
----@field client_id string
 
 ---@class AIGitCommit.ContextConfig
 ---@field max_diff_lines? number
@@ -43,8 +42,6 @@ local supported_providers = {
 	copilot = true,
 }
 
-local default_copilot_client_id = "Ov23li8tweQw6odWQebz"
-
 ---@type AIGitCommit.Config
 local defaults = {
 	provider = nil,
@@ -67,10 +64,9 @@ local defaults = {
 			max_tokens = 500,
 		},
 		copilot = {
-			model = "gpt-4o",
+			model = "gpt-4o-mini",
 			endpoint = "https://api.githubcopilot.com/chat/completions",
 			max_tokens = 500,
-			client_id = default_copilot_client_id,
 		},
 	},
 

@@ -14,7 +14,7 @@ T["setup"]["applies default config"] = function()
 	MiniTest.expect.equality(cfg.provider, nil)
 	MiniTest.expect.equality(cfg.providers.openai.model, "gpt-4o-mini")
 	MiniTest.expect.equality(cfg.providers.anthropic.model, "claude-haiku-4-5")
-	MiniTest.expect.equality(cfg.providers.copilot.model, "gpt-4o")
+	MiniTest.expect.equality(cfg.providers.copilot.model, "gpt-4o-mini")
 	MiniTest.expect.equality(cfg.languages[1], "English")
 end
 

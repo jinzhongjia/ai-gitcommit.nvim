@@ -1,17 +1,13 @@
-local config = require("ai-gitcommit.config")
-
 local M = {}
 
-local DEVICE_CODE_URL = "https://github.com/login/device/code"
-local ACCESS_TOKEN_URL = "https://github.com/login/oauth/access_token"
 local COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
-local DEFAULT_CLIENT_ID = "Ov23li8tweQw6odWQebz"
-local SCOPE = "read:user"
 local IS_WINDOWS = vim.fn.has("win32") == 1
 
-local function get_token_path()
-	return vim.fs.joinpath(vim.fn.stdpath("data"), "ai-gitcommit", "copilot.json")
-end
+-- Module-level memory cache
+local _cached_oauth_token = nil
+local _cached_copilot_token = nil -- { token, expires_at, endpoint }
+local _token_refresh_in_progress = false
+local _pending_callbacks = {}
 
 ---@param path string
 ---@return string?
@@ -21,12 +17,6 @@ local function read_file(path)
 	end
 	local lines = vim.fn.readfile(path)
 	return table.concat(lines, "\n")
-end
-
----@param path string
----@param content string
-local function write_file(path, content)
-	vim.fn.writefile({ content }, path)
 end
 
 ---@param args string[]
@@ -40,47 +30,6 @@ local function curl(args, callback)
 			callback(obj.stdout or "", obj.code)
 		end)
 	end)
-end
-
-local function open_browser(url)
-	if vim.fn.has("mac") == 1 then
-		vim.system({ "open", url }, { detach = true })
-	elseif IS_WINDOWS then
-		vim.system({ "cmd", "/c", "start", "", url }, { detach = true })
-	else
-		vim.system({ "xdg-open", url }, { detach = true })
-	end
-end
-
----@return string
-local function get_client_id()
-	local cfg = config.get()
-	if cfg.providers and cfg.providers.copilot and cfg.providers.copilot.client_id then
-		return cfg.providers.copilot.client_id
-	end
-	return DEFAULT_CLIENT_ID
-end
-
----@return table?
-local function read_auth_data()
-	local content = read_file(get_token_path())
-	if not content then
-		return nil
-	end
-
-	local ok, data = pcall(vim.json.decode, content)
-	if not ok or not data then
-		return nil
-	end
-
-	return data
-end
-
----@param data table
-local function write_auth_data(data)
-	local data_dir = vim.fs.joinpath(vim.fn.stdpath("data"), "ai-gitcommit")
-	vim.fn.mkdir(data_dir, "p")
-	write_file(get_token_path(), vim.json.encode(data))
 end
 
 ---@param stdout string
@@ -145,24 +94,107 @@ local function fetch_copilot_token(github_access_token, callback)
 	end)
 end
 
----@param data table?
+--- Find the GitHub Copilot plugin config directory
+---@return string
+local function find_copilot_config_path()
+	local xdg = os.getenv("XDG_CONFIG_HOME")
+	if xdg and xdg ~= "" then
+		return xdg
+	end
+
+	if IS_WINDOWS then
+		local localappdata = os.getenv("LOCALAPPDATA")
+		if localappdata and localappdata ~= "" then
+			return localappdata
+		end
+	end
+
+	return vim.fs.joinpath(os.getenv("HOME") or vim.fn.expand("~"), ".config")
+end
+
+--- Read OAuth token from installed Copilot plugin (copilot.vim / copilot.lua)
+---@return string?
+local function read_copilot_plugin_oauth_token()
+	-- Check Codespaces environment
+	local github_token = os.getenv("GITHUB_TOKEN")
+	if github_token and github_token ~= "" and os.getenv("CODESPACES") then
+		return github_token
+	end
+
+	local config_path = find_copilot_config_path()
+	local copilot_dir = vim.fs.joinpath(config_path, "github-copilot")
+
+	-- Try hosts.json first, then apps.json
+	local files = { "hosts.json", "apps.json" }
+	for _, filename in ipairs(files) do
+		local filepath = vim.fs.joinpath(copilot_dir, filename)
+		local content = read_file(filepath)
+		if content then
+			local ok, data = pcall(vim.json.decode, content)
+			if ok and data then
+				for key, value in pairs(data) do
+					if type(key) == "string" and key:find("github.com") and type(value) == "table" then
+						local token = value.oauth_token
+						if type(token) == "string" and token ~= "" then
+							return token
+						end
+					end
+				end
+			end
+		end
+	end
+
+	return nil
+end
+
+--- Resolve OAuth token: memory cache > Copilot plugin config
+---@return string?
+local function resolve_oauth_token()
+	if _cached_oauth_token then
+		return _cached_oauth_token
+	end
+
+	local plugin_token = read_copilot_plugin_oauth_token()
+	if plugin_token then
+		_cached_oauth_token = plugin_token
+		return plugin_token
+	end
+
+	return nil
+end
+
+---@param token_data table? { token, expires_at, endpoint }
 ---@return boolean
-local function is_copilot_token_valid(data)
-	if not data or type(data.copilot_token) ~= "string" or data.copilot_token == "" then
+local function is_copilot_token_valid(token_data)
+	if not token_data or type(token_data.token) ~= "string" or token_data.token == "" then
 		return false
 	end
 
-	if type(data.copilot_expires_at) ~= "number" then
+	if type(token_data.expires_at) ~= "number" then
 		return true
 	end
 
-	return data.copilot_expires_at > (os.time() + 30)
+	return token_data.expires_at > (os.time() + 30)
 end
 
----@param data table
+--- Notify all pending callbacks and reset state
+---@param token_data table?
+---@param err string?
+local function notify_pending_callbacks(token_data, err)
+	local callbacks = _pending_callbacks
+	_pending_callbacks = {}
+	_token_refresh_in_progress = false
+
+	for _, cb in ipairs(callbacks) do
+		cb(token_data, err)
+	end
+end
+
+--- Refresh copilot token using an OAuth token
+---@param oauth_token string
 ---@param callback fun(token_data: table?, err: string?)
-local function refresh_copilot_token(data, callback)
-	fetch_copilot_token(data.github_access_token, function(copilot_data, token_err)
+local function refresh_copilot_token(oauth_token, callback)
+	fetch_copilot_token(oauth_token, function(copilot_data, token_err)
 		if token_err then
 			callback(nil, token_err)
 			return
@@ -173,224 +205,95 @@ local function refresh_copilot_token(data, callback)
 			endpoint = copilot_data.endpoints.api .. "/chat/completions"
 		end
 
-		local updated = vim.tbl_extend("force", data, {
-			copilot_token = copilot_data.token,
-			copilot_expires_at = copilot_data.expires_at,
-			copilot_refresh_in = copilot_data.refresh_in,
-			copilot_endpoints = copilot_data.endpoints,
-			copilot_created_at = os.time(),
-		})
-
-		write_auth_data(updated)
+		_cached_copilot_token = {
+			token = copilot_data.token,
+			expires_at = copilot_data.expires_at,
+			endpoint = endpoint,
+		}
 
 		callback({ token = copilot_data.token, endpoint = endpoint }, nil)
 	end)
 end
 
----@param callback fun(data: table?, err: string?)
-local function fetch_device_code(callback)
-	local body = "client_id=" .. vim.uri_encode(get_client_id()) .. "&scope=" .. vim.uri_encode(SCOPE)
-	curl({
-		"-s",
-		"-X",
-		"POST",
-		"-H",
-		"Accept: application/json",
-		"-H",
-		"Content-Type: application/x-www-form-urlencoded",
-		"-d",
-		body,
-		DEVICE_CODE_URL,
-	}, function(stdout, exit_code)
-		if exit_code ~= 0 then
-			callback(nil, decode_error(stdout, "Failed to start GitHub device flow"))
-			return
-		end
-
-		local ok, data = pcall(vim.json.decode, stdout)
-		if not ok or not data then
-			callback(nil, "Invalid device code response")
-			return
-		end
-
-		if data.error then
-			callback(nil, data.error_description or data.error)
-			return
-		end
-
-		if not data.device_code or not data.user_code then
-			callback(nil, "No device code in response")
-			return
-		end
-
-		callback(data, nil)
-	end)
-end
-
----@param device_code string
----@param interval number
----@param deadline number
----@param callback fun(data: table?, err: string?)
-local function poll_access_token(device_code, interval, deadline, callback)
-	if os.time() >= deadline then
-		callback(nil, "Device login timed out")
+--- Get a valid Copilot token with concurrency protection
+---@param oauth_token string
+---@param callback fun(token_data: table?, err: string?)
+local function get_valid_copilot_token(oauth_token, callback)
+	if is_copilot_token_valid(_cached_copilot_token) then
+		callback({ token = _cached_copilot_token.token, endpoint = _cached_copilot_token.endpoint }, nil)
 		return
 	end
 
-	local body = table.concat({
-		"client_id=" .. vim.uri_encode(get_client_id()),
-		"device_code=" .. vim.uri_encode(device_code),
-		"grant_type=" .. vim.uri_encode("urn:ietf:params:oauth:grant-type:device_code"),
-	}, "&")
+	table.insert(_pending_callbacks, callback)
 
-	curl({
-		"-s",
-		"-X",
-		"POST",
-		"-H",
-		"Accept: application/json",
-		"-H",
-		"Content-Type: application/x-www-form-urlencoded",
-		"-d",
-		body,
-		ACCESS_TOKEN_URL,
-	}, function(stdout, exit_code)
-		if exit_code ~= 0 then
-			callback(nil, decode_error(stdout, "Failed to poll GitHub token"))
-			return
-		end
+	if _token_refresh_in_progress then
+		return
+	end
 
-		local ok, data = pcall(vim.json.decode, stdout)
-		if not ok or not data then
-			callback(nil, "Invalid token polling response")
-			return
-		end
+	_token_refresh_in_progress = true
 
-		if data.access_token then
-			callback(data, nil)
-			return
-		end
-
-		local err = data.error
-		if err == "authorization_pending" then
-			vim.defer_fn(function()
-				poll_access_token(device_code, interval, deadline, callback)
-			end, interval * 1000)
-			return
-		end
-
-		if err == "slow_down" then
-			vim.defer_fn(function()
-				poll_access_token(device_code, interval + 5, deadline, callback)
-			end, (interval + 5) * 1000)
-			return
-		end
-
-		if err == "expired_token" then
-			callback(nil, "Device code expired. Run :AICommit login copilot again")
-			return
-		end
-
-		if err == "access_denied" then
-			callback(nil, "GitHub authorization denied")
-			return
-		end
-
-		callback(nil, data.error_description or err or "GitHub OAuth failed")
+	refresh_copilot_token(oauth_token, function(token_data, err)
+		notify_pending_callbacks(token_data, err)
 	end)
 end
 
 ---@return boolean
 function M.is_authenticated()
-	local data = read_auth_data()
-	return data ~= nil and type(data.github_access_token) == "string" and data.github_access_token ~= ""
+	return resolve_oauth_token() ~= nil
 end
 
 ---@param callback fun(data: table?, err: string?)
 function M.get_token(callback)
-	local data = read_auth_data()
-	if not data or not data.github_access_token then
-		callback(nil, "Not authenticated. Run :AICommit login copilot")
+	local oauth_token = resolve_oauth_token()
+	if not oauth_token then
+		callback(nil, "Not authenticated. Install copilot.vim or copilot.lua plugin")
 		return
 	end
 
-	if is_copilot_token_valid(data) then
-		local endpoint = nil
-		if data.copilot_endpoints and data.copilot_endpoints.api then
-			endpoint = data.copilot_endpoints.api .. "/chat/completions"
-		end
-		callback({ token = data.copilot_token, endpoint = endpoint }, nil)
-		return
-	end
-
-	refresh_copilot_token(data, callback)
+	get_valid_copilot_token(oauth_token, callback)
 end
 
 ---@param callback fun(data: table?, err: string?)
 function M.login(callback)
-	fetch_device_code(function(device_data, device_err)
-		if device_err then
-			callback(nil, device_err)
-			return
-		end
-
-		local verify_uri = device_data.verification_uri or device_data.verification_uri_complete
-		if not verify_uri then
-			callback(nil, "Missing verification URL")
-			return
-		end
-
-		vim.notify(
-			"Opening browser for GitHub Copilot login. Code: " .. device_data.user_code,
-			vim.log.levels.INFO
-		)
-		open_browser(verify_uri)
-
-		local interval = tonumber(device_data.interval) or 5
-		local expires_in = tonumber(device_data.expires_in) or 900
-		local deadline = os.time() + expires_in
-
-		poll_access_token(device_data.device_code, interval, deadline, function(access_data, access_err)
-			if access_err then
-				callback(nil, access_err)
-				return
-			end
-
-			fetch_copilot_token(access_data.access_token, function(copilot_data, token_err)
-				if token_err then
-					callback(nil, token_err)
-					return
-				end
-
-				local auth_data = {
-					github_access_token = access_data.access_token,
-					github_token_type = access_data.token_type,
-					github_scope = access_data.scope,
-					copilot_token = copilot_data.token,
-					copilot_expires_at = copilot_data.expires_at,
-					copilot_refresh_in = copilot_data.refresh_in,
-					copilot_endpoints = copilot_data.endpoints,
-					created_at = os.time(),
-				}
-
-				write_auth_data(auth_data)
-
-				local endpoint = nil
-				if copilot_data.endpoints and copilot_data.endpoints.api then
-					endpoint = copilot_data.endpoints.api .. "/chat/completions"
-				end
-
-				callback({ token = copilot_data.token, endpoint = endpoint }, nil)
-			end)
-		end)
-	end)
+	callback(nil, "Copilot provider reads tokens from copilot.vim or copilot.lua plugin. Install one of them and authenticate there")
 end
 
 function M.logout()
-	local token_path = get_token_path()
-	if vim.fn.filereadable(token_path) == 1 then
-		vim.fn.delete(token_path)
-	end
+	_cached_oauth_token = nil
+	_cached_copilot_token = nil
+	_token_refresh_in_progress = false
+	_pending_callbacks = {}
 end
+
+-- Exposed for testing only
+M._testing = {
+	find_copilot_config_path = function()
+		return find_copilot_config_path()
+	end,
+	read_copilot_plugin_oauth_token = function()
+		return read_copilot_plugin_oauth_token()
+	end,
+	resolve_oauth_token = function()
+		return resolve_oauth_token()
+	end,
+	is_copilot_token_valid = function(token_data)
+		return is_copilot_token_valid(token_data)
+	end,
+	get_valid_copilot_token = function(oauth_token, callback)
+		return get_valid_copilot_token(oauth_token, callback)
+	end,
+	set_cached_oauth_token = function(token)
+		_cached_oauth_token = token
+	end,
+	set_cached_copilot_token = function(token_data)
+		_cached_copilot_token = token_data
+	end,
+	get_cached_oauth_token = function()
+		return _cached_oauth_token
+	end,
+	get_cached_copilot_token = function()
+		return _cached_copilot_token
+	end,
+}
 
 return M

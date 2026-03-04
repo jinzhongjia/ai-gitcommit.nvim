@@ -13,9 +13,8 @@ local function map_copilot_error(err)
 		or lowered:find("forbidden", 1, true)
 		or lowered:find("403", 1, true)
 	then
-		return "GitHub Copilot request was forbidden (403). Re-run :AICommit login copilot, "
-			.. "then verify this account has Copilot access. If it still fails, "
-			.. "set providers.copilot.client_id to a valid OAuth app client id."
+		return "GitHub Copilot request was forbidden (403). "
+			.. "Verify this account has Copilot access and that copilot.vim or copilot.lua is authenticated."
 	end
 
 	if lowered:find("404", 1, true) or lowered:find("not found", 1, true) then
