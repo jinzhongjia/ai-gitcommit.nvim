@@ -5,6 +5,7 @@ local T = new_set()
 
 local copilot
 local tmp_dir
+local original_xdg
 
 --- Create a temporary directory for test fixtures
 local function create_tmp_dir()
@@ -20,17 +21,23 @@ local function write_json_file(path, data)
 	vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
---- Cleanup: remove temp dir and reset module state
-local function cleanup()
+--- Common pre_case: create temp dir, redirect XDG, clear caches
+local function setup_isolated_env()
+	tmp_dir = create_tmp_dir()
+	original_xdg = vim.env.XDG_CONFIG_HOME
+	vim.env.XDG_CONFIG_HOME = tmp_dir
+	copilot.logout()
+end
+
+--- Common post_case: restore XDG, remove temp dir, clear caches
+local function teardown_isolated_env()
+	vim.env.XDG_CONFIG_HOME = original_xdg
+	original_xdg = nil
 	if tmp_dir and vim.fn.isdirectory(tmp_dir) == 1 then
 		vim.fn.delete(tmp_dir, "rf")
 	end
 	tmp_dir = nil
-
-	-- Reset module
-	if copilot then
-		copilot.logout()
-	end
+	copilot.logout()
 end
 
 T["setup"] = function()
@@ -88,12 +95,10 @@ T["find_copilot_config_path"]["returns a non-empty string"] = function()
 end
 
 T["find_copilot_config_path"]["uses XDG_CONFIG_HOME when set"] = function()
-	local original = os.getenv("XDG_CONFIG_HOME")
-	-- XDG_CONFIG_HOME is typically set in most environments
-	-- Just verify the function returns a valid path
+	local xdg = os.getenv("XDG_CONFIG_HOME")
 	local path = copilot._testing.find_copilot_config_path()
-	if original and original ~= "" then
-		MiniTest.expect.equality(path, original)
+	if xdg and xdg ~= "" then
+		MiniTest.expect.equality(path, xdg)
 	end
 end
 
@@ -102,34 +107,19 @@ end
 -- ============================================================
 T["read_copilot_plugin_oauth_token"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-		end,
-		post_case = cleanup,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 
 T["read_copilot_plugin_oauth_token"]["reads from hosts.json"] = function()
-	-- Create a fake hosts.json in temp dir
 	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
 	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
 		["github.com"] = { oauth_token = "gho_test_hosts_token" },
 	})
 
-	-- Override XDG_CONFIG_HOME to point to our temp dir
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	-- Need to reload the module to pick up the new env
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout() -- clear caches
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, "gho_test_hosts_token")
-
-	-- Restore
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["reads from apps.json when hosts.json missing"] = function()
@@ -138,17 +128,8 @@ T["read_copilot_plugin_oauth_token"]["reads from apps.json when hosts.json missi
 		["github.com"] = { oauth_token = "gho_test_apps_token" },
 	})
 
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, "gho_test_apps_token")
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["prefers hosts.json over apps.json"] = function()
@@ -160,17 +141,8 @@ T["read_copilot_plugin_oauth_token"]["prefers hosts.json over apps.json"] = func
 		["github.com"] = { oauth_token = "gho_from_apps" },
 	})
 
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, "gho_from_hosts")
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["handles key with github.com prefix"] = function()
@@ -179,31 +151,13 @@ T["read_copilot_plugin_oauth_token"]["handles key with github.com prefix"] = fun
 		["github.com:copilot"] = { oauth_token = "gho_prefixed_token" },
 	})
 
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, "gho_prefixed_token")
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["returns nil when no config files exist"] = function()
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir -- empty dir, no github-copilot subdir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, nil)
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["returns nil for invalid JSON"] = function()
@@ -211,17 +165,8 @@ T["read_copilot_plugin_oauth_token"]["returns nil for invalid JSON"] = function(
 	vim.fn.mkdir(copilot_dir, "p")
 	vim.fn.writefile({ "not valid json{{{" }, vim.fs.joinpath(copilot_dir, "hosts.json"))
 
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, nil)
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 T["read_copilot_plugin_oauth_token"]["returns nil when oauth_token is empty"] = function()
@@ -230,17 +175,8 @@ T["read_copilot_plugin_oauth_token"]["returns nil when oauth_token is empty"] = 
 		["github.com"] = { oauth_token = "" },
 	})
 
-	local original_xdg = vim.env.XDG_CONFIG_HOME
-	vim.env.XDG_CONFIG_HOME = tmp_dir
-
-	helpers.unload_module("ai-gitcommit.auth.copilot")
-	copilot = require("ai-gitcommit.auth.copilot")
-	copilot.logout()
-
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, nil)
-
-	vim.env.XDG_CONFIG_HOME = original_xdg
 end
 
 -- ============================================================
@@ -248,20 +184,8 @@ end
 -- ============================================================
 T["resolve_oauth_token"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-			-- Point XDG to empty temp dir so plugin config is not found
-			vim.env._ORIGINAL_XDG = vim.env.XDG_CONFIG_HOME
-			vim.env.XDG_CONFIG_HOME = tmp_dir
-			helpers.unload_module("ai-gitcommit.auth.copilot")
-			copilot = require("ai-gitcommit.auth.copilot")
-			copilot.logout()
-		end,
-		post_case = function()
-			vim.env.XDG_CONFIG_HOME = vim.env._ORIGINAL_XDG
-			vim.env._ORIGINAL_XDG = nil
-			cleanup()
-		end,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 
@@ -290,7 +214,6 @@ T["resolve_oauth_token"]["reads from copilot plugin config"] = function()
 end
 
 T["resolve_oauth_token"]["memory cache beats plugin config"] = function()
-	-- Set up both sources
 	copilot._testing.set_cached_oauth_token("memory_token")
 	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
 	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
@@ -306,19 +229,8 @@ end
 -- ============================================================
 T["is_authenticated"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-			vim.env._ORIGINAL_XDG = vim.env.XDG_CONFIG_HOME
-			vim.env.XDG_CONFIG_HOME = tmp_dir
-			helpers.unload_module("ai-gitcommit.auth.copilot")
-			copilot = require("ai-gitcommit.auth.copilot")
-			copilot.logout()
-		end,
-		post_case = function()
-			vim.env.XDG_CONFIG_HOME = vim.env._ORIGINAL_XDG
-			vim.env._ORIGINAL_XDG = nil
-			cleanup()
-		end,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 
@@ -345,19 +257,8 @@ end
 -- ============================================================
 T["get_token"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-			vim.env._ORIGINAL_XDG = vim.env.XDG_CONFIG_HOME
-			vim.env.XDG_CONFIG_HOME = tmp_dir
-			helpers.unload_module("ai-gitcommit.auth.copilot")
-			copilot = require("ai-gitcommit.auth.copilot")
-			copilot.logout()
-		end,
-		post_case = function()
-			vim.env.XDG_CONFIG_HOME = vim.env._ORIGINAL_XDG
-			vim.env._ORIGINAL_XDG = nil
-			cleanup()
-		end,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 
@@ -397,18 +298,8 @@ end
 -- ============================================================
 T["logout"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-			vim.env._ORIGINAL_XDG = vim.env.XDG_CONFIG_HOME
-			vim.env.XDG_CONFIG_HOME = tmp_dir
-			helpers.unload_module("ai-gitcommit.auth.copilot")
-			copilot = require("ai-gitcommit.auth.copilot")
-		end,
-		post_case = function()
-			vim.env.XDG_CONFIG_HOME = vim.env._ORIGINAL_XDG
-			vim.env._ORIGINAL_XDG = nil
-			cleanup()
-		end,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 
@@ -450,19 +341,8 @@ end
 -- ============================================================
 T["get_valid_copilot_token"] = new_set({
 	hooks = {
-		pre_case = function()
-			tmp_dir = create_tmp_dir()
-			vim.env._ORIGINAL_XDG = vim.env.XDG_CONFIG_HOME
-			vim.env.XDG_CONFIG_HOME = tmp_dir
-			helpers.unload_module("ai-gitcommit.auth.copilot")
-			copilot = require("ai-gitcommit.auth.copilot")
-			copilot.logout()
-		end,
-		post_case = function()
-			vim.env.XDG_CONFIG_HOME = vim.env._ORIGINAL_XDG
-			vim.env._ORIGINAL_XDG = nil
-			cleanup()
-		end,
+		pre_case = setup_isolated_env,
+		post_case = teardown_isolated_env,
 	},
 })
 

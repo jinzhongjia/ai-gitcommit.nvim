@@ -57,6 +57,23 @@ local function decode_error(stdout, fallback)
 	return fallback
 end
 
+--- Check if a curl exit code indicates an auth failure (HTTP 401/403)
+--- curl --fail-with-body returns exit code 22 for HTTP errors;
+--- we inspect stdout for status hints.
+---@param exit_code integer
+---@param stdout string
+---@return boolean
+local function is_auth_error(exit_code, stdout)
+	if exit_code ~= 22 then
+		return false
+	end
+	local lowered = (stdout or ""):lower()
+	return lowered:find("401") ~= nil
+		or lowered:find("unauthorized") ~= nil
+		or lowered:find("403") ~= nil
+		or lowered:find("forbidden") ~= nil
+end
+
 ---@param github_access_token string
 ---@param callback fun(data: table?, err: string?)
 local function fetch_copilot_token(github_access_token, callback)
@@ -74,6 +91,9 @@ local function fetch_copilot_token(github_access_token, callback)
 		COPILOT_TOKEN_URL,
 	}, function(stdout, exit_code)
 		if exit_code ~= 0 then
+			if is_auth_error(exit_code, stdout) then
+				_cached_oauth_token = nil
+			end
 			callback(nil, decode_error(stdout, "Failed to fetch GitHub Copilot token"))
 			return
 		end
@@ -267,21 +287,11 @@ end
 
 -- Exposed for testing only
 M._testing = {
-	find_copilot_config_path = function()
-		return find_copilot_config_path()
-	end,
-	read_copilot_plugin_oauth_token = function()
-		return read_copilot_plugin_oauth_token()
-	end,
-	resolve_oauth_token = function()
-		return resolve_oauth_token()
-	end,
-	is_copilot_token_valid = function(token_data)
-		return is_copilot_token_valid(token_data)
-	end,
-	get_valid_copilot_token = function(oauth_token, callback)
-		return get_valid_copilot_token(oauth_token, callback)
-	end,
+	find_copilot_config_path = find_copilot_config_path,
+	read_copilot_plugin_oauth_token = read_copilot_plugin_oauth_token,
+	resolve_oauth_token = resolve_oauth_token,
+	is_copilot_token_valid = is_copilot_token_valid,
+	get_valid_copilot_token = get_valid_copilot_token,
 	set_cached_oauth_token = function(token)
 		_cached_oauth_token = token
 	end,
