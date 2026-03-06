@@ -3,19 +3,29 @@
 AI-powered git commit message generator for Neovim.
 
 Supported providers:
-- OpenAI
+- OpenAI (and compatible endpoints)
 - Anthropic
-- GitHub Copilot (OAuth)
+- GitHub Copilot
 
 ## Requirements
 
 - Neovim 0.11+
 - curl
+- API key (OpenAI/Anthropic) or [copilot.vim](https://github.com/github/copilot.vim) / [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
 
 ## Installation
 
 ```lua
--- lazy.nvim
+-- lazy.nvim (Copilot)
+{
+  "your-username/ai-gitcommit.nvim",
+  event = "FileType gitcommit",
+  opts = {
+    provider = "copilot",
+  },
+}
+
+-- lazy.nvim (OpenAI)
 {
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
@@ -30,42 +40,22 @@ Supported providers:
 }
 ```
 
-## Important Migration Note
-
-Old flat config is no longer supported. You must configure:
-- `provider`
-- `providers.<name>`
-
-If `provider` is not set, `:AICommit` fails with a configuration error.
-
 ## Usage
 
 ```vim
 :AICommit                       " Generate commit message
 :AICommit [context]             " Generate with extra context
-:AICommit login <provider>      " OAuth login (anthropic/copilot)
-:AICommit logout <provider>     " OAuth logout
+:AICommit login <provider>      " OAuth login (anthropic only)
+:AICommit logout <provider>     " Clear auth state
 :AICommit status                " Show provider status
 :AICommit status <provider>     " Show one provider status
-```
-
-Notes:
-- If provider stream returns no message content, plugin shows a warning instead of success.
-- Git command failures are surfaced as errors instead of being treated as empty staged changes.
-
-Examples:
-
-```vim
-:AICommit login copilot
-:AICommit login anthropic
-:AICommit status
 ```
 
 ## Configuration
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "openai", -- required: "openai" | "anthropic" | "copilot"
+  provider = "copilot", -- required: "openai" | "anthropic" | "copilot"
 
   providers = {
     openai = {
@@ -88,10 +78,9 @@ require("ai-gitcommit").setup({
     },
 
     copilot = {
-      model = "gpt-4o",
+      model = "grok-code-fast-1",
       endpoint = "https://api.githubcopilot.com/chat/completions",
       max_tokens = 500,
-      client_id = nil, -- optional override, built-in default is used if nil
     },
   },
 
@@ -114,44 +103,104 @@ require("ai-gitcommit").setup({
 })
 ```
 
-Provider config validation:
-- `providers.<name>.model` must be a non-empty string
-- `providers.<name>.endpoint` must be a non-empty string
-- `providers.<name>.max_tokens` must be greater than 0
+## Copilot
 
-OpenAI-compatible endpoints:
-- Reuse the `openai` provider and set `providers.openai.endpoint`
-- For local/self-hosted endpoints without auth, set `api_key_required = false`
-- For non-Bearer auth, set `api_key_header` and `api_key_prefix`
-- Add vendor-specific headers via `extra_headers`
-- Set `stream_options = false` if endpoint rejects OpenAI stream options
-- Streaming parser accepts both LF and CRLF SSE line endings
+Copilot provider reads OAuth tokens directly from an installed Copilot plugin — **no separate login required**.
 
-Diff context behavior:
-- `filter.exclude_patterns` removes files by filename pattern
-- `filter.exclude_paths` removes files by path pattern
-- `filter.include_only` (when non-empty) keeps only matching files
-- context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
+### Prerequisites
 
-## Copilot OAuth
+Install and authenticate one of:
+- [copilot.vim](https://github.com/github/copilot.vim) — `:Copilot auth`
+- [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
 
-For Copilot, authenticate once:
+Once authenticated there, `ai-gitcommit.nvim` will automatically detect the token.
 
-```vim
-:AICommit login copilot
+### Available models
+
+The model depends on your Copilot subscription (Free/Pro/Pro+/Business/Enterprise):
+
+| Model | ID | Notes |
+|---|---|---|
+| Grok Code Fast 1 | `grok-code-fast-1` | Default, fast and economical |
+| GPT-4.1 | `gpt-4.1` | Copilot's own default |
+| GPT-4o | `gpt-4o` | |
+| Claude Sonnet 4 | `claude-sonnet-4` | |
+| o3-mini | `o3-mini` | Reasoning model |
+| o4-mini | `o4-mini` | Reasoning model |
+
+Override via config:
+
+```lua
+providers = {
+  copilot = {
+    model = "claude-sonnet-4",
+  },
+},
 ```
 
-The plugin stores OAuth data under your Neovim data dir:
-- Linux/macOS: `stdpath("data")/ai-gitcommit/copilot.json`
-- Windows: equivalent `stdpath("data")` location
+## OpenAI-compatible endpoints
+
+Reuse the `openai` provider with a custom endpoint:
+
+```lua
+providers = {
+  openai = {
+    endpoint = "http://localhost:11434/v1/chat/completions",
+    api_key_required = false, -- no auth for local services
+    model = "llama3",
+  },
+},
+```
+
+- Non-Bearer auth: set `api_key_header` and `api_key_prefix`
+- Vendor-specific headers: use `extra_headers`
+- If endpoint rejects OpenAI `stream_options`: set `stream_options = false`
+
+## Anthropic
+
+```lua
+{
+  provider = "anthropic",
+  providers = {
+    anthropic = {
+      api_key = vim.env.ANTHROPIC_API_KEY,
+    },
+  },
+}
+```
+
+Or use OAuth login:
+
+```vim
+:AICommit login anthropic
+```
 
 ## Custom Prompt Template
 
-Placeholders:
-- `{language}`
-- `{extra_context}`
-- `{staged_files}`
-- `{diff}`
+Placeholders: `{language}`, `{extra_context}`, `{staged_files}`, `{diff}`
+
+```lua
+prompt_template = [[
+Generate a commit message for the following changes.
+Use {language}, be concise.
+
+{extra_context}
+
+Files: {staged_files}
+
+Diff:
+{diff}
+
+Output only the commit message, no explanation.
+]]
+```
+
+## Diff context behavior
+
+- `filter.exclude_patterns` — remove files by filename pattern
+- `filter.exclude_paths` — remove files by path pattern
+- `filter.include_only` — when non-empty, keep only matching files
+- Context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
 
 ## License
 

@@ -9,9 +9,6 @@
 ---@field endpoint string
 ---@field max_tokens number
 
----@class AIGitCommit.CopilotProviderConfig: AIGitCommit.ProviderConfig
----@field client_id string
-
 ---@class AIGitCommit.ContextConfig
 ---@field max_diff_lines? number
 ---@field max_diff_chars? number
@@ -27,7 +24,7 @@
 
 ---@class AIGitCommit.Config
 ---@field provider? string
----@field providers table<string, AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig>
+---@field providers table<string, AIGitCommit.ProviderConfig>
 ---@field languages string[]
 ---@field prompt_template? string|fun(default_prompt: string): string
 ---@field context AIGitCommit.ContextConfig
@@ -42,8 +39,6 @@ local supported_providers = {
 	anthropic = true,
 	copilot = true,
 }
-
-local default_copilot_client_id = "Ov23li8tweQw6odWQebz"
 
 ---@type AIGitCommit.Config
 local defaults = {
@@ -67,10 +62,9 @@ local defaults = {
 			max_tokens = 500,
 		},
 		copilot = {
-			model = "gpt-4o",
+			model = "grok-code-fast-1",
 			endpoint = "https://api.githubcopilot.com/chat/completions",
 			max_tokens = 500,
-			client_id = default_copilot_client_id,
 		},
 	},
 
@@ -150,7 +144,7 @@ function M.get()
 	return config
 end
 
----@return { name: string, config: AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig }?, string?
+---@return { name: string, config: AIGitCommit.ProviderConfig }?, string?
 function M.get_provider()
 	local provider_name = config.provider
 	if not provider_name or provider_name == "" then

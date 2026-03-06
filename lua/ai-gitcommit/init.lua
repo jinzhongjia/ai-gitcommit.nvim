@@ -30,7 +30,7 @@ local function resolve_api_key(api_key)
 	return api_key
 end
 
----@param provider_config AIGitCommit.ProviderConfig|AIGitCommit.CopilotProviderConfig
+---@param provider_config AIGitCommit.ProviderConfig
 ---@return boolean
 local function openai_requires_api_key(provider_config)
 	return provider_config.api_key_required ~= false
@@ -95,12 +95,13 @@ local function do_login(provider)
 		return
 	end
 
-	vim.notify("Starting " .. provider .. " login flow...", vim.log.levels.INFO)
 	auth.login(provider, function(result, err)
 		if result then
 			vim.notify("Logged in to " .. provider, vim.log.levels.INFO)
+		elseif err then
+			vim.notify(err, vim.log.levels.ERROR)
 		else
-			vim.notify("Login failed: " .. (err or "unknown"), vim.log.levels.ERROR)
+			vim.notify("Login failed for " .. provider, vim.log.levels.ERROR)
 		end
 	end)
 end
