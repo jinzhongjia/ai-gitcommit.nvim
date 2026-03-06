@@ -8,6 +8,7 @@ local _cached_oauth_token = nil
 local _cached_copilot_token = nil -- { token, expires_at, endpoint }
 local _token_refresh_in_progress = false
 local _pending_callbacks = {}
+local _mock_fetch_copilot_token = nil -- For testing only
 
 ---@param path string
 ---@return string?
@@ -77,6 +78,10 @@ end
 ---@param github_access_token string
 ---@param callback fun(data: table?, err: string?)
 local function fetch_copilot_token(github_access_token, callback)
+	if _mock_fetch_copilot_token then
+		return _mock_fetch_copilot_token(github_access_token, callback)
+	end
+
 	curl({
 		"-s",
 		"-X",
@@ -93,6 +98,7 @@ local function fetch_copilot_token(github_access_token, callback)
 		if exit_code ~= 0 then
 			if is_auth_error(exit_code, stdout) then
 				_cached_oauth_token = nil
+				_cached_copilot_token = nil
 			end
 			callback(nil, decode_error(stdout, "Failed to fetch GitHub Copilot token"))
 			return
@@ -303,6 +309,12 @@ M._testing = {
 	end,
 	get_cached_copilot_token = function()
 		return _cached_copilot_token
+	end,
+	set_mock_fetch_copilot_token = function(mock_fn)
+		_mock_fetch_copilot_token = mock_fn
+	end,
+	clear_mock_fetch_copilot_token = function()
+		_mock_fetch_copilot_token = nil
 	end,
 }
 

@@ -38,6 +38,7 @@ local function teardown_isolated_env()
 	end
 	tmp_dir = nil
 	copilot.logout()
+	copilot._testing.clear_mock_fetch_copilot_token()
 end
 
 T["setup"] = function()
@@ -363,6 +364,34 @@ T["get_valid_copilot_token"]["returns cached token immediately"] = function()
 	MiniTest.expect.equality(result_err, nil)
 	MiniTest.expect.equality(result_data.token, "valid_token")
 	MiniTest.expect.equality(result_data.endpoint, "https://api.example.com/chat/completions")
+end
+
+T["get_valid_copilot_token"]["concurrent requests all receive error on refresh failure"] = function()
+	local call_count = 0
+	local results = {}
+
+	copilot._testing.set_mock_fetch_copilot_token(function(_, cb)
+		call_count = call_count + 1
+		vim.schedule(function()
+			cb(nil, "Simulated auth failure")
+		end)
+	end)
+
+	for i = 1, 3 do
+		copilot._testing.get_valid_copilot_token("oauth_token", function(data, err)
+			results[i] = { data = data, err = err }
+		end)
+	end
+
+	vim.wait(100, function()
+		return #results == 3 and results[1].err ~= nil
+	end)
+
+	MiniTest.expect.equality(call_count, 1)
+	for i = 1, 3 do
+		MiniTest.expect.equality(results[i].data, nil)
+		MiniTest.expect.equality(results[i].err, "Simulated auth failure")
+	end
 end
 
 return T
