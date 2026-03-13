@@ -54,7 +54,7 @@ T["get_staged_diff"]["returns string"] = function()
 	local done = false
 	local diff = nil
 
-	git.get_staged_diff(function(result)
+	git.get_staged_diff("normal", function(result)
 		diff = result
 		done = true
 	end)
@@ -84,7 +84,7 @@ T["get_staged_diff"]["returns error when git command fails"] = function()
 		}
 	end
 
-	git.get_staged_diff(function(result, result_err)
+	git.get_staged_diff("normal", function(result, result_err)
 		diff = result
 		err = result_err
 		done = true
@@ -107,7 +107,7 @@ T["get_staged_files"]["returns table"] = function()
 	local done = false
 	local files = nil
 
-	git.get_staged_files(function(result)
+	git.get_staged_files("normal", function(result)
 		files = result
 		done = true
 	end)
@@ -124,7 +124,7 @@ T["get_staged_files"]["parses status correctly"] = function()
 	local done = false
 	local files = nil
 
-	git.get_staged_files(function(result)
+	git.get_staged_files("normal", function(result)
 		files = result
 		done = true
 	end)
@@ -159,7 +159,7 @@ T["get_staged_files"]["returns error when git command fails"] = function()
 		}
 	end
 
-	git.get_staged_files(function(result, result_err)
+	git.get_staged_files("normal", function(result, result_err)
 		files = result
 		err = result_err
 		done = true
