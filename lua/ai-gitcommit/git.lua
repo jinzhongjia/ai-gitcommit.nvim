@@ -67,17 +67,37 @@ function M.detect_commit_type(callback)
 				return
 			end
 
-			-- Check amend: read COMMIT_EDITMSG for amend marker comment
+			-- Check amend: compare COMMIT_EDITMSG content with HEAD message.
+			-- This avoids locale-dependent string matching on git comment text.
+			-- Note: COMMIT_EDITMSG is pre-populated by git before the user edits,
+			-- so at auto-generation time (before save) the content matches HEAD
+			-- for amend commits. If the user has already edited the message, the
+			-- content won't match and we'll classify as "normal", which is acceptable
+			-- since the user is actively writing their own message.
+			-- Limitation: comment stripping assumes default commit.cleanup mode
+			-- (lines starting with #). Scissors mode or custom cleanup is not handled.
 			local commit_msg_file = git_dir .. "/COMMIT_EDITMSG"
 			if vim.fn.filereadable(commit_msg_file) == 1 then
 				local content = vim.fn.readfile(commit_msg_file)
-				if table.concat(content, "\n"):find("\n# This is an amend commit", 1, true) then
-					-- Verify HEAD~ exists (not amend on initial commit)
-					run_git({ "rev-parse", "HEAD~" }, function(_, parent_code)
-						if parent_code ~= 0 then
-							callback("initial", git_dir)
+				local msg_lines = {}
+				for _, line in ipairs(content) do
+					if not line:match("^#") then
+						table.insert(msg_lines, line)
+					end
+				end
+				local editmsg = vim.trim(table.concat(msg_lines, "\n"))
+				if editmsg ~= "" then
+					run_git({ "log", "-1", "--format=%B" }, function(head_msg, log_code)
+						if log_code == 0 and vim.trim(head_msg) == editmsg then
+							run_git({ "rev-parse", "HEAD~" }, function(_, parent_code)
+								if parent_code ~= 0 then
+									callback("initial", git_dir)
+								else
+									callback("amend", git_dir)
+								end
+							end)
 						else
-							callback("amend", git_dir)
+							callback("normal", git_dir)
 						end
 					end)
 					return
@@ -131,21 +151,55 @@ function M.get_staged_files(commit_type, callback)
 	end)
 end
 
+---@param filepath string
+---@param callback fun(data: string?)
+local function async_read_file(filepath, callback)
+	vim.uv.fs_stat(filepath, function(err, stat)
+		if err or not stat then
+			callback(nil)
+			return
+		end
+
+		vim.uv.fs_open(filepath, "r", 438, function(open_err, fd)
+			if open_err or not fd then
+				callback(nil)
+				return
+			end
+
+			vim.uv.fs_read(fd, stat.size, 0, function(read_err, data)
+				vim.uv.fs_close(fd, function() end)
+				callback((not read_err) and data or nil)
+			end)
+		end)
+	end)
+end
+
 ---@param git_dir string
 ---@param callback fun(messages: string?)
 function M.get_squash_messages(git_dir, callback)
 	local rebase_dir = git_dir .. "/rebase-merge"
-	-- Try message-squash first, then fall back to message
-	for _, filename in ipairs({ "message-squash", "message" }) do
-		local filepath = rebase_dir .. "/" .. filename
-		if vim.fn.filereadable(filepath) == 1 then
-			local content = vim.fn.readfile(filepath)
-			callback(table.concat(content, "\n"))
+	local candidates = { "message-squash", "message" }
+
+	local function try_next(i)
+		if i > #candidates then
+			vim.schedule(function()
+				callback(nil)
+			end)
 			return
 		end
+
+		async_read_file(rebase_dir .. "/" .. candidates[i], function(data)
+			if data then
+				vim.schedule(function()
+					callback(data)
+				end)
+			else
+				try_next(i + 1)
+			end
+		end)
 	end
 
-	callback(nil)
+	try_next(1)
 end
 
 ---@param callback fun(is_repo: boolean)

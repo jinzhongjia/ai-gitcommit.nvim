@@ -182,6 +182,7 @@ local function do_generate(language, extra_context, bufnr, silent)
 		local diff, diff_err, files, files_err
 		local pending = 2
 
+		-- Safe: both callbacks are serialized onto the main loop via vim.schedule in run_git
 		local function on_ready()
 			pending = pending - 1
 			if pending > 0 then
@@ -227,16 +228,16 @@ local function do_generate(language, extra_context, bufnr, silent)
 					squash_messages = squash_messages,
 				})
 
-				local function run_generate(api_key, endpoint_override)
-					local provider_info, provider_err = config.get_provider()
-					if not provider_info then
-						generating_buffers[bufnr] = nil
-						if not silent then
-							vim.notify(provider_err, vim.log.levels.ERROR)
-						end
-						return
+				local provider_info, provider_err = config.get_provider()
+				if not provider_info then
+					generating_buffers[bufnr] = nil
+					if not silent then
+						vim.notify(provider_err, vim.log.levels.ERROR)
 					end
+					return
+				end
 
+				local function run_generate(api_key, endpoint_override)
 					local provider_config = vim.deepcopy(provider_info.config)
 					if api_key then
 						provider_config.api_key = api_key
@@ -284,15 +285,6 @@ local function do_generate(language, extra_context, bufnr, silent)
 							vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
 						end
 					end)
-				end
-
-				local provider_info, provider_err = config.get_provider()
-				if not provider_info then
-					generating_buffers[bufnr] = nil
-					if not silent then
-						vim.notify(provider_err, vim.log.levels.ERROR)
-					end
-					return
 				end
 
 				local api_key = resolve_api_key(provider_info.config.api_key)

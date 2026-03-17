@@ -86,8 +86,18 @@ function M.build(opts)
 
 	local commit_hint = build_commit_type_hint(opts.commit_type, opts.squash_messages)
 
-	return (template:gsub("{commit_type_hint}", escape_replacement(commit_hint))
-		:gsub("{language}", escape_replacement(opts.language or "English"))
+	-- If template doesn't have the placeholder, inject the hint before {diff}.
+	-- If neither placeholder exists, the hint is silently dropped.
+	local has_hint_placeholder = template:find("{commit_type_hint}", 1, true) ~= nil
+
+	local result = template
+	if has_hint_placeholder then
+		result = result:gsub("{commit_type_hint}", escape_replacement(commit_hint))
+	elseif commit_hint ~= "" then
+		result = result:gsub("{diff}", escape_replacement(commit_hint .. "\n{diff}"))
+	end
+
+	return (result:gsub("{language}", escape_replacement(opts.language or "English"))
 		:gsub("{extra_context}", escape_replacement(extra))
 		:gsub("{staged_files}", escape_replacement(staged_files_str))
 		:gsub("{diff}", escape_replacement(opts.diff or "")))

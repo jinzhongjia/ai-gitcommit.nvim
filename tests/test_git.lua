@@ -142,6 +142,81 @@ T["get_staged_files"]["parses status correctly"] = function()
 	end
 end
 
+T["detect_commit_type"] = new_set()
+
+T["detect_commit_type"]["returns normal for regular commit"] = function()
+	local done = false
+	local result_type = nil
+
+	git.detect_commit_type(function(commit_type, _)
+		result_type = commit_type
+		done = true
+	end)
+
+	vim.wait(1000, function()
+		return done
+	end)
+
+	MiniTest.expect.equality(done, true)
+	-- In a normal repo with HEAD and no rebase/amend state, should be "normal"
+	MiniTest.expect.equality(result_type, "normal")
+end
+
+T["detect_commit_type"]["returns normal when not a git repo"] = function()
+	local original_system = vim.system
+	local done = false
+	local result_type = nil
+
+	-- Mock git rev-parse --git-dir to fail
+	vim.system = function(cmd, opts, cb)
+		if cmd[2] == "rev-parse" and cmd[3] == "--git-dir" then
+			cb({ code = 128, stdout = "", stderr = "not a git repo" })
+			return {
+				is_closing = function()
+					return false
+				end,
+				kill = function(_, _)
+				end,
+			}
+		end
+		return original_system(cmd, opts, cb)
+	end
+
+	git.detect_commit_type(function(commit_type, _)
+		result_type = commit_type
+		done = true
+	end)
+
+	vim.wait(500, function()
+		return done
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(result_type, "normal")
+end
+
+T["get_git_dir"] = new_set()
+
+T["get_git_dir"]["returns git dir path"] = function()
+	local done = false
+	local result = nil
+
+	git.get_git_dir(function(git_dir)
+		result = git_dir
+		done = true
+	end)
+
+	vim.wait(1000, function()
+		return done
+	end)
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(result ~= nil, true)
+	MiniTest.expect.equality(type(result), "string")
+end
+
 T["get_staged_files"]["returns error when git command fails"] = function()
 	local original_system = vim.system
 	local done = false
