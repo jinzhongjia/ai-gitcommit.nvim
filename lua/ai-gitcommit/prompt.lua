@@ -4,21 +4,25 @@ M.default_template = [[
 Generate a git commit message for the following changes.
 {commit_type_hint}
 Requirements:
-- Follow Conventional Commits: type(scope): description
-- Types:
-  - feat: new feature
-  - fix: bug fix
-  - docs: documentation only
-  - style: formatting, no code change
-  - refactor: code change without feature/fix
-  - test: adding/updating tests
-  - chore: maintenance tasks
-  - perf: performance improvement
+- Follow Conventional Commits format
+- Types: feat, fix, docs, style, refactor, test, chore, perf
 - Use present tense ("Add" not "Added")
 - Subject line must be under 72 characters
-- Prefer single-line; omit scope if unclear
+- Omit scope if unclear
 - Write in {language}
 - Focus on WHY, not just WHAT
+
+Format:
+- Line 1: type(scope): concise description
+- Line 2: blank
+- Line 3+: bullet points explaining what changed and why (wrap at 72 chars)
+
+Example:
+feat(auth): add OAuth2 login support
+
+- Implement OAuth2 authorization code flow with PKCE
+- Add token refresh logic with automatic retry
+- Store tokens securely in system keychain
 
 {extra_context}
 
@@ -30,7 +34,7 @@ Diff:
 {diff}
 ```
 
-IMPORTANT: Output ONLY the commit message. No quotes, markdown, explanations, or extra text.]]
+Output ONLY the commit message in the format above. No quotes, markdown fences, or explanations.]]
 
 ---@class AIGitCommit.PromptOptions
 ---@field template? string|fun(default_prompt: string): string
