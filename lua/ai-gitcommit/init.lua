@@ -178,16 +178,26 @@ local function do_generate(language, extra_context, bufnr, silent)
 		vim.notify("Generating commit message...", vim.log.levels.INFO)
 	end
 
-	git.get_staged_diff(function(diff, diff_err)
-		if diff_err then
-			generating_buffers[bufnr] = nil
-			if not silent then
-				vim.notify("Error: " .. diff_err, vim.log.levels.ERROR)
-			end
-			return
-		end
+	git.detect_commit_type(function(commit_type, git_dir)
+		local diff, diff_err, files, files_err
+		local pending = 2
 
-		git.get_staged_files(function(files, files_err)
+		-- Safe: both callbacks are serialized onto the main loop via vim.schedule in run_git
+		local function on_ready()
+			pending = pending - 1
+			if pending > 0 then
+				return
+			end
+
+			-- Both completed, handle results
+			if diff_err then
+				generating_buffers[bufnr] = nil
+				if not silent then
+					vim.notify("Error: " .. diff_err, vim.log.levels.ERROR)
+				end
+				return
+			end
+
 			if files_err then
 				generating_buffers[bufnr] = nil
 				if not silent then
@@ -204,18 +214,20 @@ local function do_generate(language, extra_context, bufnr, silent)
 				return
 			end
 
-			local cfg = config.get()
-			local processed_diff = context.build_context(diff, cfg)
+			local function build_and_generate(squash_messages)
+				local cfg = config.get()
+				local processed_diff = context.build_context(diff, cfg)
 
-			local final_prompt = prompt.build({
-				template = cfg.prompt_template,
-				language = language,
-				extra_context = extra_context,
-				files = files,
-				diff = processed_diff,
-			})
+				local final_prompt = prompt.build({
+					template = cfg.prompt_template,
+					language = language,
+					extra_context = extra_context,
+					files = files,
+					diff = processed_diff,
+					commit_type = commit_type,
+					squash_messages = squash_messages,
+				})
 
-			local function run_generate(api_key, endpoint_override)
 				local provider_info, provider_err = config.get_provider()
 				if not provider_info then
 					generating_buffers[bufnr] = nil
@@ -225,93 +237,104 @@ local function do_generate(language, extra_context, bufnr, silent)
 					return
 				end
 
-				local provider_config = vim.deepcopy(provider_info.config)
-				if api_key then
-					provider_config.api_key = api_key
-				end
-				if endpoint_override then
-					provider_config.endpoint = endpoint_override
-				end
+				local function run_generate(api_key, endpoint_override)
+					local provider_config = vim.deepcopy(provider_info.config)
+					if api_key then
+						provider_config.api_key = api_key
+					end
+					if endpoint_override then
+						provider_config.endpoint = endpoint_override
+					end
 
-				local provider = providers.get(provider_info.name)
-				local first_comment = buffer.find_first_comment_line(bufnr)
+					local provider = providers.get(provider_info.name)
+					local first_comment = buffer.find_first_comment_line(bufnr)
 
-				local tw = typewriter.new({
-					bufnr = bufnr,
-					first_comment_line = first_comment,
-					interval_ms = 12,
-					chars_per_tick = 4,
-				})
-				local has_content = false
+					local tw = typewriter.new({
+						bufnr = bufnr,
+						first_comment_line = first_comment,
+						interval_ms = 12,
+						chars_per_tick = 4,
+					})
+					local has_content = false
 
-				provider.generate(final_prompt, provider_config, function(chunk)
-					has_content = true
-					tw:push(chunk)
-				end, function()
-					tw:finish(function()
-						generating_buffers[bufnr] = nil
-						if not has_content then
-							if not silent then
-								vim.notify("No message content received from provider", vim.log.levels.WARN)
+					provider.generate(final_prompt, provider_config, function(chunk)
+						has_content = true
+						tw:push(chunk)
+					end, function()
+						tw:finish(function()
+							generating_buffers[bufnr] = nil
+							if not has_content then
+								if not silent then
+									vim.notify("No message content received from provider", vim.log.levels.WARN)
+								end
+								return
 							end
-							return
-						end
 
-						if vim.api.nvim_buf_is_valid(bufnr) then
-							generated_buffers[bufnr] = true
-						end
+							if vim.api.nvim_buf_is_valid(bufnr) then
+								generated_buffers[bufnr] = true
+							end
 
+							if not silent then
+								vim.notify("Commit message generated!", vim.log.levels.INFO)
+							end
+						end)
+					end, function(gen_err)
+						tw:stop()
+						generating_buffers[bufnr] = nil
 						if not silent then
-							vim.notify("Commit message generated!", vim.log.levels.INFO)
+							vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
 						end
 					end)
-				end, function(gen_err)
-					tw:stop()
-					generating_buffers[bufnr] = nil
-					if not silent then
-						vim.notify("Error: " .. gen_err, vim.log.levels.ERROR)
+				end
+
+				local api_key = resolve_api_key(provider_info.config.api_key)
+
+				if provider_info.name == "openai" then
+					if openai_requires_api_key(provider_info.config) and not api_key then
+						generating_buffers[bufnr] = nil
+						if not silent then
+							vim.notify("OpenAI API key not configured", vim.log.levels.ERROR)
+						end
+						return
 					end
+					run_generate(api_key)
+					return
+				end
+
+				if provider_info.name == "anthropic" and api_key then
+					run_generate(api_key)
+					return
+				end
+
+				auth.get_token(provider_info.name, function(token_data, err)
+					if err then
+						generating_buffers[bufnr] = nil
+						if not silent then
+							vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
+						end
+						return
+					end
+					run_generate(token_data.token, token_data.endpoint)
 				end)
 			end
 
-			local provider_info, provider_err = config.get_provider()
-			if not provider_info then
-				generating_buffers[bufnr] = nil
-				if not silent then
-					vim.notify(provider_err, vim.log.levels.ERROR)
-				end
-				return
+			if commit_type == "squash" and git_dir then
+				git.get_squash_messages(git_dir, function(squash_messages)
+					build_and_generate(squash_messages)
+				end)
+			else
+				build_and_generate(nil)
 			end
+		end
 
-			local api_key = resolve_api_key(provider_info.config.api_key)
+		git.get_staged_diff(commit_type, function(d, e)
+			diff, diff_err = d, e
+			on_ready()
+		end)
 
-			if provider_info.name == "openai" then
-				if openai_requires_api_key(provider_info.config) and not api_key then
-					generating_buffers[bufnr] = nil
-					if not silent then
-						vim.notify("OpenAI API key not configured", vim.log.levels.ERROR)
-					end
-					return
-				end
-				run_generate(api_key)
-				return
-			end
-
-			if provider_info.name == "anthropic" and api_key then
-				run_generate(api_key)
-				return
-			end
-
-			auth.get_token(provider_info.name, function(token_data, err)
-				if err then
-					generating_buffers[bufnr] = nil
-					if not silent then
-						vim.notify("Auth error: " .. err, vim.log.levels.ERROR)
-					end
-					return
-				end
-				run_generate(token_data.token, token_data.endpoint)
-			end)
+		git.get_staged_files(commit_type, function(f, e)
+			files, files_err = f, e
+			on_ready()
 		end)
 	end)
 end
@@ -396,6 +419,11 @@ function M.setup(opts)
 					debounce_timers[bufnr] = nil
 
 					if not vim.api.nvim_buf_is_valid(bufnr) then
+						return
+					end
+
+					-- Ensure buffer is still the current buffer (not backgrounded/replaced)
+					if vim.api.nvim_get_current_buf() ~= bufnr then
 						return
 					end
 

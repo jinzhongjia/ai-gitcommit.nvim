@@ -71,8 +71,9 @@ T["openai generate"]["sends completion request with stream options"] = function(
 	MiniTest.expect.equality(captured.headers["Authorization"], "Bearer test-key")
 	MiniTest.expect.equality(captured.body.stream, true)
 	MiniTest.expect.equality(captured.body.stream_options.include_usage, true)
-	MiniTest.expect.equality(captured.body.messages[1].role, "user")
-	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
+	MiniTest.expect.equality(captured.body.messages[1].role, "system")
+	MiniTest.expect.equality(captured.body.messages[2].role, "user")
+	MiniTest.expect.equality(captured.body.messages[2].content, "hello")
 	MiniTest.expect.equality(captured.body.tools, nil)
 end
 
@@ -114,7 +115,8 @@ T["openai generate"]["supports openai-compatible endpoints without bearer auth"]
 	MiniTest.expect.equality(captured.headers["X-Test-Header"], "1")
 	MiniTest.expect.equality(captured.body.stream, true)
 	MiniTest.expect.equality(captured.body.stream_options, nil)
-	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
+	MiniTest.expect.equality(captured.body.messages[1].role, "system")
+	MiniTest.expect.equality(captured.body.messages[2].content, "hello")
 end
 
 T["copilot generate"] = new_set()
@@ -155,7 +157,8 @@ T["copilot generate"]["sends completion-only headers and payload"] = function()
 	MiniTest.expect.equality(captured.headers["Openai-Intent"], nil)
 	MiniTest.expect.equality(captured.headers["x-initiator"], nil)
 	MiniTest.expect.equality(captured.body.stream, true)
-	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
+	MiniTest.expect.equality(captured.body.messages[1].role, "system")
+	MiniTest.expect.equality(captured.body.messages[2].content, "hello")
 	MiniTest.expect.equality(captured.body.tools, nil)
 end
 

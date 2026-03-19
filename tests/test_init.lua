@@ -75,12 +75,18 @@ local function run_generate_with_mocks(overrides)
 	}
 
 	package.loaded["ai-gitcommit.git"] = {
-		get_staged_diff = function(callback)
+		detect_commit_type = function(callback)
+			callback(overrides.commit_type or "normal", overrides.git_dir or ".git")
+		end,
+		get_staged_diff = function(_, callback)
 			local diff = overrides.diff or "diff --git a/a.lua b/a.lua"
 			callback(diff, overrides.diff_err)
 		end,
-		get_staged_files = function(callback)
+		get_staged_files = function(_, callback)
 			callback(overrides.files or { { status = "M", file = "a.lua" } }, overrides.files_err)
+		end,
+		get_squash_messages = function(_, callback)
+			callback(overrides.squash_messages)
 		end,
 	}
 

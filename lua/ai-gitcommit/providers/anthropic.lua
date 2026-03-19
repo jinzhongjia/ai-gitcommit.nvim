@@ -11,6 +11,7 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 	local body = {
 		model = config.model,
 		max_tokens = config.max_tokens or 500,
+		system = "You are a git commit message generator. You analyze code diffs and produce well-structured conventional commit messages with a subject line and descriptive body.",
 		messages = {
 			{ role = "user", content = prompt },
 		},

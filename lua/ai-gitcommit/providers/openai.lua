@@ -12,6 +12,7 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 		model = config.model,
 		max_tokens = config.max_tokens or 500,
 		messages = {
+			{ role = "system", content = "You are a git commit message generator. You analyze code diffs and produce well-structured conventional commit messages with a subject line and descriptive body." },
 			{ role = "user", content = prompt },
 		},
 		stream = true,

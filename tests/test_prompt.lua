@@ -79,6 +79,67 @@ T["build"]["handles missing extra context"] = function()
 	MiniTest.expect.equality(result:find("Additional context") == nil, true)
 end
 
+T["build"]["includes amend hint for amend commits"] = function()
+	local result = prompt.build({
+		language = "English",
+		diff = "test",
+		files = {},
+		commit_type = "amend",
+	})
+
+	MiniTest.expect.equality(result:find("amend commit") ~= nil, true)
+end
+
+T["build"]["includes squash hint with original messages"] = function()
+	local result = prompt.build({
+		language = "English",
+		diff = "test",
+		files = {},
+		commit_type = "squash",
+		squash_messages = "fix: bug\nfeat: feature",
+	})
+
+	MiniTest.expect.equality(result:find("squash commit") ~= nil, true)
+	MiniTest.expect.equality(result:find("fix: bug") ~= nil, true)
+end
+
+T["build"]["includes initial commit hint"] = function()
+	local result = prompt.build({
+		language = "English",
+		diff = "test",
+		files = {},
+		commit_type = "initial",
+	})
+
+	MiniTest.expect.equality(result:find("initial commit") ~= nil, true)
+end
+
+T["build"]["no commit type hint for normal commits"] = function()
+	local result = prompt.build({
+		language = "English",
+		diff = "test",
+		files = {},
+		commit_type = "normal",
+	})
+
+	MiniTest.expect.equality(result:find("amend") == nil, true)
+	MiniTest.expect.equality(result:find("squash") == nil, true)
+	MiniTest.expect.equality(result:find("initial commit") == nil, true)
+end
+
+T["build"]["appends commit hint when custom template lacks placeholder"] = function()
+	local result = prompt.build({
+		template = "Write commit for: {diff}",
+		language = "English",
+		diff = "test diff",
+		files = {},
+		commit_type = "amend",
+	})
+
+	MiniTest.expect.equality(result:find("amend commit") ~= nil, true)
+	MiniTest.expect.equality(result:find("test diff") ~= nil, true)
+end
+
 T["default_template"] = new_set()
 
 T["default_template"]["exists"] = function()
