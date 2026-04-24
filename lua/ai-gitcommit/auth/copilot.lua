@@ -3,19 +3,42 @@ local http = require("ai-gitcommit.util.http")
 
 local M = {}
 
+---@class AIGitCommit.CopilotTokenData
+---@field token string
+---@field expires_at? number
+---@field endpoint? string
+
+---@class AIGitCommit.CopilotTokenResult
+---@field token string
+---@field endpoint? string
+
+---@class AIGitCommit.CopilotModelsCache
+---@field ids string[]
+---@field expires_at number
+
+---@class AIGitCommit.CopilotTokenResponse
+---@field token string
+---@field expires_at? number
+---@field endpoints? { api?: string }
+
 local COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
 local COPILOT_API_VERSION = "2025-10-01"
 local MODELS_CACHE_TTL = 1800 -- 30 minutes
 local IS_WINDOWS = vim.fn.has("win32") == 1
 
--- Module-level memory cache
+---@type string?
 local _cached_oauth_token = nil
-local _cached_copilot_token = nil -- { token, expires_at, endpoint }
+---@type AIGitCommit.CopilotTokenData?
+local _cached_copilot_token = nil
 local _token_refresh_in_progress = false
+---@type fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)[]
 local _pending_callbacks = {}
-local _mock_fetch_copilot_token = nil -- For testing only
-local _cached_models = nil -- { ids = string[], expires_at = number }
-local _mock_fetch_models = nil -- For testing only
+---@type fun(github_access_token: string, callback: fun(data?: AIGitCommit.CopilotTokenResponse, err?: string))?
+local _mock_fetch_copilot_token = nil
+---@type AIGitCommit.CopilotModelsCache?
+local _cached_models = nil
+---@type fun(copilot_token: string, endpoint: string, callback: fun(ids?: string[], err?: string))?
+local _mock_fetch_models = nil
 
 ---@param stdout string
 ---@param fallback string
@@ -60,7 +83,7 @@ local function is_auth_error(exit_code, stdout)
 end
 
 ---@param github_access_token string
----@param callback fun(data: table?, err: string?)
+---@param callback fun(data?: AIGitCommit.CopilotTokenResponse, err?: string)
 local function fetch_copilot_token(github_access_token, callback)
 	if _mock_fetch_copilot_token then
 		return _mock_fetch_copilot_token(github_access_token, callback)
@@ -173,7 +196,7 @@ local function resolve_oauth_token()
 	return nil
 end
 
----@param token_data table? { token, expires_at, endpoint }
+---@param token_data AIGitCommit.CopilotTokenData?
 ---@return boolean
 local function is_copilot_token_valid(token_data)
 	if not token_data or type(token_data.token) ~= "string" or token_data.token == "" then
@@ -188,7 +211,7 @@ local function is_copilot_token_valid(token_data)
 end
 
 --- Notify all pending callbacks and reset state
----@param token_data table?
+---@param token_data AIGitCommit.CopilotTokenResult?
 ---@param err string?
 local function notify_pending_callbacks(token_data, err)
 	local callbacks = _pending_callbacks
@@ -202,7 +225,7 @@ end
 
 --- Refresh copilot token using an OAuth token
 ---@param oauth_token string
----@param callback fun(token_data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 local function refresh_copilot_token(oauth_token, callback)
 	fetch_copilot_token(oauth_token, function(copilot_data, token_err)
 		if token_err then
@@ -227,7 +250,7 @@ end
 
 --- Get a valid Copilot token with concurrency protection
 ---@param oauth_token string
----@param callback fun(token_data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 local function get_valid_copilot_token(oauth_token, callback)
 	if is_copilot_token_valid(_cached_copilot_token) then
 		callback({ token = _cached_copilot_token.token, endpoint = _cached_copilot_token.endpoint }, nil)
@@ -252,7 +275,7 @@ function M.is_authenticated()
 	return resolve_oauth_token() ~= nil
 end
 
----@param callback fun(data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 function M.get_token(callback)
 	local oauth_token = resolve_oauth_token()
 	if not oauth_token then
@@ -376,7 +399,7 @@ local function request_models(copilot_token, endpoint, callback)
 	end)
 end
 
----@param models table? { ids, expires_at }
+---@param models AIGitCommit.CopilotModelsCache?
 ---@return boolean
 local function is_models_cache_valid(models)
 	return models ~= nil

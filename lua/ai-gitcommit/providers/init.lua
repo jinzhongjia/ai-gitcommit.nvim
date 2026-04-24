@@ -2,13 +2,19 @@ local config = require("ai-gitcommit.config")
 
 local M = {}
 
+---@class AIGitCommit.Provider
+---@field generate fun(prompt: string, config: AIGitCommit.ProviderConfig, on_chunk: fun(content: string), on_done: fun(), on_error: fun(err: string))
+---@field has_credentials fun(config: AIGitCommit.ProviderConfig): boolean
+---@field credential_status fun(config: AIGitCommit.ProviderConfig): string
+---@field resolve_credentials fun(config: AIGitCommit.ProviderConfig, callback: fun(creds?: AIGitCommit.Credentials, err?: string))
+
 local registry = {
 	openai = "ai-gitcommit.providers.openai",
 	copilot = "ai-gitcommit.providers.copilot",
 }
 
 ---@param provider string
----@return table
+---@return AIGitCommit.Provider
 function M.get(provider)
 	local mod_path = registry[provider]
 	if not mod_path then

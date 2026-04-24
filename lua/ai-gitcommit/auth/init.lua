@@ -1,11 +1,16 @@
 local M = {}
 
+---@class AIGitCommit.AuthModule
+---@field get_token fun(callback: fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string))
+---@field is_authenticated fun(): boolean
+---@field logout fun()
+
 local registry = {
 	copilot = "ai-gitcommit.auth.copilot",
 }
 
 ---@param provider string
----@return table?, string?
+---@return AIGitCommit.AuthModule?, string?
 local function get_auth_module(provider)
 	local mod_path = registry[provider]
 	if mod_path then
@@ -15,7 +20,7 @@ local function get_auth_module(provider)
 end
 
 ---@param provider string
----@param callback fun(result: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 function M.get_token(provider, callback)
 	local mod, err = get_auth_module(provider)
 	if not mod then

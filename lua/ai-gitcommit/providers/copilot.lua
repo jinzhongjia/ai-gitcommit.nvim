@@ -74,6 +74,7 @@ function M.resolve_credentials(config, callback)
 			return
 		end
 
+		---@type AIGitCommit.Credentials
 		local creds = {
 			api_key = token_data.token,
 			endpoint = token_data.endpoint,

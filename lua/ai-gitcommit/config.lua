@@ -37,6 +37,10 @@
 ---@field keymap? string
 ---@field auto? AIGitCommit.AutoConfig
 
+---@class AIGitCommit.ProviderInfo
+---@field name string
+---@field config AIGitCommit.ProviderConfig
+
 local M = {}
 
 local supported_providers = {
@@ -144,7 +148,7 @@ function M.get()
 	return config
 end
 
----@return { name: string, config: AIGitCommit.ProviderConfig }?, string?
+---@return AIGitCommit.ProviderInfo?, string?
 function M.get_provider()
 	local provider_name = config.provider
 	if not provider_name or provider_name == "" then
