@@ -135,14 +135,17 @@ local function find_copilot_config_path()
 		return xdg
 	end
 
+	local home = os.getenv(IS_WINDOWS and "USERPROFILE" or "HOME") or vim.fn.expand("~")
+
 	if IS_WINDOWS then
 		local localappdata = os.getenv("LOCALAPPDATA")
 		if localappdata and localappdata ~= "" then
 			return localappdata
 		end
+		return vim.fs.joinpath(home, "AppData", "Local")
 	end
 
-	return vim.fs.joinpath(os.getenv("HOME") or vim.fn.expand("~"), ".config")
+	return vim.fs.joinpath(home, ".config")
 end
 
 --- Read OAuth token from installed Copilot plugin (copilot.vim / copilot.lua)
