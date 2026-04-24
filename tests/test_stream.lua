@@ -86,8 +86,7 @@ T["request"]["parses SSE events with CRLF line endings"] = function()
 			is_closing = function()
 				return false
 			end,
-			kill = function(_, _)
-			end,
+			kill = function(_, _) end,
 		}
 	end
 
@@ -127,8 +126,7 @@ T["request"]["returns parse error when stream payload is invalid"] = function()
 			is_closing = function()
 				return false
 			end,
-			kill = function(_, _)
-			end,
+			kill = function(_, _) end,
 		}
 	end
 

@@ -9,7 +9,8 @@ local function map_copilot_error(err)
 	local msg = err or ""
 	local lowered = msg:lower()
 
-	if lowered:find("access to this endpoint is forbidden", 1, true)
+	if
+		lowered:find("access to this endpoint is forbidden", 1, true)
 		or lowered:find("forbidden", 1, true)
 		or lowered:find("403", 1, true)
 	then

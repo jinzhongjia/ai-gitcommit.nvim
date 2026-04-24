@@ -58,7 +58,8 @@ local function run_generate_with_mocks(overrides)
 					endpoint = "https://api.openai.com/v1/chat/completions",
 					max_tokens = 500,
 				},
-			}, nil
+			},
+				nil
 		end,
 		get = function()
 			return {
@@ -112,13 +113,11 @@ local function run_generate_with_mocks(overrides)
 	package.loaded["ai-gitcommit.typewriter"] = {
 		new = function(_)
 			return {
-				push = function(_, _)
-				end,
+				push = function(_, _) end,
 				finish = function(_, callback)
 					callback()
 				end,
-				stop = function(_)
-				end,
+				stop = function(_) end,
 			}
 		end,
 	}

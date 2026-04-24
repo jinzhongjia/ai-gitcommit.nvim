@@ -152,7 +152,7 @@ end
 function M.get_provider()
 	local provider_name = config.provider
 	if not provider_name or provider_name == "" then
-		return nil, "No provider configured. Set `provider = \"openai\"|\"copilot\"`"
+		return nil, 'No provider configured. Set `provider = "openai"|"copilot"`'
 	end
 
 	if not supported_providers[provider_name] then

@@ -389,7 +389,11 @@ T["parse_models_response"]["keeps only picker-enabled chat models"] = function()
 			{ id = "gpt-4o", model_picker_enabled = true, capabilities = { type = "chat" } },
 			{ id = "text-embed", model_picker_enabled = true, capabilities = { type = "embeddings" } },
 			{ id = "hidden", model_picker_enabled = false, capabilities = { type = "chat" } },
-			{ id = "claude-sonnet-4", model_picker_enabled = true, capabilities = { type = { "chat", "completions" } } },
+			{
+				id = "claude-sonnet-4",
+				model_picker_enabled = true,
+				capabilities = { type = { "chat", "completions" } },
+			},
 		},
 	})
 

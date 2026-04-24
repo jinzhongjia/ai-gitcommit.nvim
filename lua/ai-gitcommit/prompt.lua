@@ -67,10 +67,13 @@ function M.build(opts)
 		return (s:gsub("%%", "%%%%"))
 	end
 
-	return (template:gsub("{language}", escape_replacement(opts.language or "English"))
-		:gsub("{extra_context}", escape_replacement(extra))
-		:gsub("{staged_files}", escape_replacement(staged_files_str))
-		:gsub("{diff}", escape_replacement(opts.diff or "")))
+	return (
+		template
+			:gsub("{language}", escape_replacement(opts.language or "English"))
+			:gsub("{extra_context}", escape_replacement(extra))
+			:gsub("{staged_files}", escape_replacement(staged_files_str))
+			:gsub("{diff}", escape_replacement(opts.diff or ""))
+	)
 end
 
 return M

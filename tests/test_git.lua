@@ -79,8 +79,7 @@ T["get_staged_diff"]["returns error when git command fails"] = function()
 			is_closing = function()
 				return false
 			end,
-			kill = function(_, _)
-			end,
+			kill = function(_, _) end,
 		}
 	end
 
@@ -154,8 +153,7 @@ T["get_staged_files"]["returns error when git command fails"] = function()
 			is_closing = function()
 				return false
 			end,
-			kill = function(_, _)
-			end,
+			kill = function(_, _) end,
 		}
 	end
 
