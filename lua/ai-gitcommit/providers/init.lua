@@ -2,11 +2,13 @@ local config = require("ai-gitcommit.config")
 
 local M = {}
 
+-- luacheck: push no max line length
 ---@class AIGitCommit.Provider
 ---@field generate fun(prompt: string, config: AIGitCommit.ProviderConfig, on_chunk: fun(content: string), on_done: fun(), on_error: fun(err: string))
 ---@field has_credentials fun(config: AIGitCommit.ProviderConfig): boolean
 ---@field credential_status fun(config: AIGitCommit.ProviderConfig): string
 ---@field resolve_credentials fun(config: AIGitCommit.ProviderConfig, callback: fun(creds?: AIGitCommit.Credentials, err?: string))
+-- luacheck: pop
 
 local registry = {
 	openai = "ai-gitcommit.providers.openai",
