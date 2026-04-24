@@ -1,4 +1,4 @@
-local stream = require("ai-gitcommit.stream")
+local openai_compat = require("ai-gitcommit.providers.openai_compat")
 
 local M = {}
 local version = vim.version()
@@ -25,42 +25,76 @@ local function map_copilot_error(err)
 	return msg
 end
 
+---@param config AIGitCommit.ProviderConfig
+---@return table<string, string>
+local function build_headers(config)
+	return {
+		["Content-Type"] = "application/json",
+		["Authorization"] = "Bearer " .. config.api_key,
+		["Copilot-Integration-Id"] = "vscode-chat",
+		["Editor-Version"] = string.format("Neovim/%d.%d.%d", version.major, version.minor, version.patch),
+		["Editor-Plugin-Version"] = "ai-gitcommit.nvim/0.1.0",
+		["User-Agent"] = "ai-gitcommit.nvim",
+	}
+end
+
 ---@param prompt string
 ---@param config AIGitCommit.ProviderConfig
 ---@param on_chunk fun(content: string)
 ---@param on_done fun()
 ---@param on_error fun(err: string)
 function M.generate(prompt, config, on_chunk, on_done, on_error)
-	local body = {
-		model = config.model,
-		max_tokens = config.max_tokens or 500,
-		messages = {
-			{ role = "user", content = prompt },
-		},
-		stream = true,
-	}
+	openai_compat.generate(prompt, config, {
+		build_headers = build_headers,
+		map_error = map_copilot_error,
+		default_stream_options = false,
+	}, on_chunk, on_done, on_error)
+end
 
-	stream.request({
-		url = config.endpoint,
-		method = "POST",
-		headers = {
-			["Content-Type"] = "application/json",
-			["Authorization"] = "Bearer " .. config.api_key,
-			["Copilot-Integration-Id"] = "vscode-chat",
-			["Editor-Version"] = string.format("Neovim/%d.%d.%d", version.major, version.minor, version.patch),
-			["Editor-Plugin-Version"] = "ai-gitcommit.nvim/0.1.0",
-			["User-Agent"] = "ai-gitcommit.nvim",
-		},
-		body = body,
-	}, function(chunk)
-		if chunk.choices and chunk.choices[1] and chunk.choices[1].delta then
-			local content = chunk.choices[1].delta.content
-			if type(content) == "string" and content ~= "" then
-				on_chunk(content)
-			end
+---@param _ AIGitCommit.ProviderConfig
+---@return boolean
+function M.has_credentials(_)
+	local auth = require("ai-gitcommit.auth")
+	return auth.is_authenticated("copilot")
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@return string
+function M.credential_status(config)
+	return M.has_credentials(config) and "authenticated" or "not authenticated"
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@param callback fun(creds?: AIGitCommit.Credentials, err?: string)
+function M.resolve_credentials(config, callback)
+	local auth = require("ai-gitcommit.auth")
+	auth.get_token("copilot", function(token_data, err)
+		if err then
+			callback(nil, "Auth error: " .. err)
+			return
 		end
-	end, on_done, function(err)
-		on_error(map_copilot_error(err))
+
+		local creds = {
+			api_key = token_data.token,
+			endpoint = token_data.endpoint,
+		}
+
+		-- User pinned a model explicitly → use it.
+		if type(config.model) == "string" and config.model ~= "" then
+			callback(creds, nil)
+			return
+		end
+
+		-- Otherwise resolve a default from Copilot's /models endpoint.
+		local copilot_auth = require("ai-gitcommit.auth.copilot")
+		copilot_auth.fetch_models(function(ids, models_err)
+			if models_err then
+				callback(nil, "Failed to resolve Copilot model: " .. models_err)
+				return
+			end
+			creds.model = ids[1]
+			callback(creds, nil)
+		end)
 	end)
 end
 

@@ -4,25 +4,22 @@ AI 驱动的 Neovim git commit 信息生成器。
 
 支持的 Provider：
 - OpenAI（及兼容接口）
-- Anthropic
 - GitHub Copilot
 
 ## 依赖
 
 - Neovim 0.11+
 - curl
-- API key（OpenAI/Anthropic）或 [copilot.vim](https://github.com/github/copilot.vim) / [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
+- OpenAI API key，或 [copilot.vim](https://github.com/github/copilot.vim) / [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
 
 ## 安装
 
 ```lua
--- lazy.nvim (Copilot)
+-- lazy.nvim（Copilot —— 默认，已安装 copilot.vim/copilot.lua 即无需任何配置）
 {
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
-  opts = {
-    provider = "copilot",
-  },
+  opts = {},
 }
 
 -- lazy.nvim (OpenAI)
@@ -46,7 +43,6 @@ AI 驱动的 Neovim git commit 信息生成器。
 ```vim
 :AICommit                       " 生成 commit message
 :AICommit [附加说明]             " 带上下文生成
-:AICommit login <provider>      " OAuth 登录（仅 anthropic）
 :AICommit logout <provider>     " 清除认证状态
 :AICommit status                " 查看全部 provider 状态
 :AICommit status <provider>     " 查看单个 provider 状态
@@ -56,7 +52,7 @@ AI 驱动的 Neovim git commit 信息生成器。
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "copilot", -- 必填: "openai" | "anthropic" | "copilot"
+  provider = "copilot", -- "openai" | "copilot"（默认: "copilot"）
 
   providers = {
     openai = {
@@ -71,15 +67,10 @@ require("ai-gitcommit").setup({
       max_tokens = 500,
     },
 
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-      model = "claude-haiku-4-5",
-      endpoint = "https://api.anthropic.com/v1/messages",
-      max_tokens = 500,
-    },
-
     copilot = {
-      model = "grok-code-fast-1",
+      -- model = nil → 自动从 /models 选最便宜可用模型
+      -- 若要固定某个模型，设置成字符串，如 "gpt-4o" 或 "claude-sonnet-4"
+      model = nil,
       endpoint = "https://api.githubcopilot.com/chat/completions",
       max_tokens = 500,
     },
@@ -116,20 +107,15 @@ Copilot provider 直接读取已安装的 Copilot 插件的 OAuth token —— *
 
 认证完成后，`ai-gitcommit.nvim` 会自动检测 token。
 
-### 可用模型
+### 模型选择
 
-具体可用模型取决于你的 Copilot 订阅级别（Free/Pro/Pro+/Business/Enterprise）：
+默认情况下，插件会通过 Copilot 的 `/models` endpoint 自动检测你订阅能用的所有
+chat 模型，并**自动选择 `billing.multiplier` 最低的那个** —— 也就是你可用的
+最便宜模型。典型结果：`grok-code-fast-1` 或 `gpt-4o-mini`（大多数套餐上是 `0x`）。
 
-| 模型 | ID | 备注 |
-|---|---|---|
-| Grok Code Fast 1 | `grok-code-fast-1` | 默认，快速经济 |
-| GPT-4.1 | `gpt-4.1` | Copilot 官方默认 |
-| GPT-4o | `gpt-4o` | |
-| Claude Sonnet 4 | `claude-sonnet-4` | |
-| o3-mini | `o3-mini` | 推理模型 |
-| o4-mini | `o4-mini` | 推理模型 |
+解析出来的模型列表在内存里缓存 30 分钟。
 
-通过配置切换模型：
+若要固定某个模型，显式配置：
 
 ```lua
 providers = {
@@ -138,6 +124,10 @@ providers = {
   },
 },
 ```
+
+常见可用模型（取决于订阅：Free / Pro / Pro+ / Business / Enterprise）：
+`grok-code-fast-1`、`gpt-4.1`、`gpt-4o`、`gpt-4o-mini`、`claude-sonnet-4`、
+`o3-mini`、`o4-mini`…
 
 ## OpenAI 兼容接口
 
@@ -156,25 +146,6 @@ providers = {
 - 非 Bearer 鉴权：配置 `api_key_header` 和 `api_key_prefix`
 - 额外请求头：使用 `extra_headers`
 - 若服务不支持 OpenAI `stream_options`：设置 `stream_options = false`
-
-## Anthropic
-
-```lua
-{
-  provider = "anthropic",
-  providers = {
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-    },
-  },
-}
-```
-
-或使用 OAuth 登录：
-
-```vim
-:AICommit login anthropic
-```
 
 ## 自定义 Prompt 模板
 

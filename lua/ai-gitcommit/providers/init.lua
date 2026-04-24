@@ -1,21 +1,40 @@
+local config = require("ai-gitcommit.config")
+
 local M = {}
+
+local registry = {
+	openai = "ai-gitcommit.providers.openai",
+	copilot = "ai-gitcommit.providers.copilot",
+}
 
 ---@param provider string
 ---@return table
 function M.get(provider)
-	if provider == "openai" then
-		return require("ai-gitcommit.providers.openai")
+	local mod_path = registry[provider]
+	if not mod_path then
+		error("Unsupported provider: " .. tostring(provider))
 	end
+	return require(mod_path)
+end
 
-	if provider == "anthropic" then
-		return require("ai-gitcommit.providers.anthropic")
+---@return boolean
+function M.has_current_credentials()
+	local info, _ = config.get_provider()
+	if not info then
+		return false
 	end
+	return M.get(info.name).has_credentials(info.config)
+end
 
-	if provider == "copilot" then
-		return require("ai-gitcommit.providers.copilot")
+---@param name string
+---@return string
+function M.status(name)
+	local cfg = config.get()
+	local provider_config = cfg.providers and cfg.providers[name]
+	if not provider_config then
+		return "not configured"
 	end
-
-	error("Unsupported provider: " .. tostring(provider))
+	return M.get(name).credential_status(provider_config)
 end
 
 return M

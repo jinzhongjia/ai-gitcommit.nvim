@@ -14,14 +14,15 @@ mise run test   # All tests must pass
 - **Neovim version**: 0.11+ only, no backward compatibility needed
 - **Test framework**: mini.test, not plenary
 - **Type annotations**: Keep LuaLS annotations (`---@param`, `---@class`, etc.)
-- **Providers**: Only openai / anthropic / copilot
+- **Providers**: Only openai / copilot
 - **Docs**: update doc/ai-gitcommit.txt and readme after code changes
 - **Compatibility**: Must work on Linux, macOS, Windows
 
 ### Forbidden
 
 - Depending on plenary.nvim
-- Adding new providers (e.g., Ollama, Gemini)
+- Expanding the provider list beyond `openai` and `copilot`
+  (use OpenAI-compatible endpoints for Ollama / vLLM / local inference instead)
 - Removing type annotations
 
 ## Code Style
@@ -38,7 +39,6 @@ Single command `:AICommit` with subcommands:
 
 ```
 :AICommit [context]
-:AICommit login <provider>
 :AICommit logout <provider>
 :AICommit status
 ```
@@ -47,15 +47,21 @@ Single command `:AICommit` with subcommands:
 
 ```
 lua/ai-gitcommit/
-├── init.lua          # Entry + commands
+├── init.lua          # Entry wiring (setup/generate)
+├── commands.lua      # :AICommit command + completion
+├── generator.lua     # Generate pipeline
+├── autogen.lua       # FileType gitcommit autocmd + debounce
+├── buffer_state.lua  # Per-buffer state
 ├── config.lua        # Configuration
-├── git.lua           # Git operations (vim.uv)
-├── stream.lua        # HTTP streaming (vim.uv)
+├── git.lua           # Git operations
+├── stream.lua        # HTTP streaming (SSE)
 ├── buffer.lua        # Buffer operations
 ├── context.lua       # Diff filtering/truncation
 ├── prompt.lua        # Prompt templates
-├── auth/             # OAuth authentication
-└── providers/        # LLM providers
+├── typewriter.lua    # Streaming text display
+├── auth/             # OAuth (copilot only)
+├── providers/        # openai / copilot (+ shared openai_compat)
+└── util/             # Shared curl / fs helpers
 ```
 
 ## Testing

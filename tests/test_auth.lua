@@ -10,30 +10,29 @@ end
 
 T["is_authenticated"] = new_set()
 
-T["is_authenticated"]["returns boolean"] = function()
-	local result = auth.is_authenticated("anthropic")
+T["is_authenticated"]["returns boolean for copilot"] = function()
+	local result = auth.is_authenticated("copilot")
 	MiniTest.expect.equality(type(result), "boolean")
+end
+
+T["is_authenticated"]["returns false for provider without auth module"] = function()
+	MiniTest.expect.equality(auth.is_authenticated("openai"), false)
 end
 
 T["get_token"] = new_set()
 
-T["get_token"]["calls callback for openai error"] = function()
-	local done = false
-
-	auth.get_token("openai", function(_, _)
-		done = true
+T["get_token"]["errors for provider without auth module"] = function()
+	local result_err
+	auth.get_token("openai", function(_, err)
+		result_err = err
 	end)
 
-	vim.wait(1000, function()
-		return done
-	end)
-
-	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(type(result_err), "string")
 end
 
 T["logout"] = new_set()
 
-T["logout"]["returns error for openai"] = function()
+T["logout"]["errors for provider without auth module"] = function()
 	local ok, err = auth.logout("openai")
 	MiniTest.expect.equality(ok, false)
 	MiniTest.expect.equality(type(err), "string")

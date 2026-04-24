@@ -7,7 +7,6 @@ function M.get_test_config(opts)
 		provider = "openai",
 		providers = {
 			openai = { model = "gpt-4o-mini" },
-			anthropic = { model = "claude-sonnet-4-20250514" },
 		},
 		languages = { "English" },
 		prompt_template = nil,

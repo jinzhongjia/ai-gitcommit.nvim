@@ -15,9 +15,8 @@ CONTENTS                                          *ai-gitcommit-contents*
 ai-gitcommit.nvim generates commit messages from staged git diff.
 
 Supported providers:
-  - OpenAI
-  - Anthropic
-  - GitHub Copilot (OAuth)
+  - OpenAI (and compatible endpoints)
+  - GitHub Copilot
 
 Requirements:
   - Neovim 0.11+
@@ -27,10 +26,14 @@ Requirements:
 2. CONFIGURATION                                  *ai-gitcommit-config*
 
 IMPORTANT:
-Old flat config is not supported anymore. You must set `provider` and
-`providers`.
+Old flat config is not supported anymore. Use `provider` + `providers`.
+`provider` defaults to "copilot"; if copilot.vim or copilot.lua is installed
+and authenticated, no configuration is needed.
 
-Minimal setup: >
+Minimal setup (Copilot, default): >
+  require("ai-gitcommit").setup()
+
+Minimal setup (OpenAI): >
   require("ai-gitcommit").setup({
     provider = "openai",
     providers = {
@@ -42,7 +45,7 @@ Minimal setup: >
 
 Full setup: >
   require("ai-gitcommit").setup({
-    provider = "openai", -- required
+    provider = "copilot", -- "openai" | "copilot" (default: "copilot")
 
     providers = {
       openai = {
@@ -57,18 +60,11 @@ Full setup: >
         max_tokens = 500,
       },
 
-      anthropic = {
-        api_key = vim.env.ANTHROPIC_API_KEY,
-        model = "claude-haiku-4-5",
-        endpoint = "https://api.anthropic.com/v1/messages",
-        max_tokens = 500,
-      },
-
       copilot = {
-        model = "gpt-4o",
+        -- model = nil → auto-pick cheapest available from /models
+        model = nil,
         endpoint = "https://api.githubcopilot.com/chat/completions",
         max_tokens = 500,
-        client_id = nil, -- optional override
       },
     },
 
@@ -124,9 +120,6 @@ Provider config validation:
 :AICommit [{context}]                              *:AICommit*
   Generate commit message in gitcommit buffer.
 
-:AICommit login <provider>                        *:AICommit-login*
-  Login for OAuth providers.
-
 :AICommit logout <provider>                       *:AICommit-logout*
   Logout provider.
 
@@ -138,12 +131,11 @@ Provider config validation:
 
 `<provider>` must be one of:
   - openai
-  - anthropic
   - copilot
 
 Notes:
-  - OpenAI uses API key config. `:AICommit login openai` returns guidance.
-  - Anthropic and Copilot support OAuth login.
+  - OpenAI uses API key config.
+  - Copilot reads tokens from copilot.vim or copilot.lua.
   - Empty provider output is reported as warning (no false success message).
   - Git command failures are reported as errors.
 
@@ -162,30 +154,31 @@ OpenAI-compatible:
     - `providers.openai.stream_options = false` (if needed)
     - Streaming parser accepts LF and CRLF SSE line endings
 
-Anthropic:
-  Configure API key, or run: >
-    :AICommit login anthropic
-
 Copilot:
-  Run: >
-    :AICommit login copilot
+  Reads OAuth tokens from an installed Copilot plugin:
+    - copilot.vim (run `:Copilot auth`)
+    - copilot.lua
+  No separate login required for this plugin.
 
-  OAuth data is stored in: >
-    stdpath("data")/ai-gitcommit/copilot.json
+  Model selection:
+    If `providers.copilot.model` is unset (nil), the plugin fetches the list
+    of chat models your subscription allows via Copilot's /models endpoint
+    and picks the one with the lowest `billing.multiplier` (cheapest). Set
+    an explicit model ID to override. The resolved list is cached for
+    30 minutes.
 
 ==============================================================================
 5. TROUBLESHOOTING                               *ai-gitcommit-troubleshooting*
 
 "No provider configured"
-  Set `provider = "openai"|"anthropic"|"copilot"` in setup.
+  `provider` defaults to "copilot". If you set it to "" explicitly, restore
+  the default or set `provider = "openai"|"copilot"`.
 
 "OpenAI API key not configured"
   Set `providers.openai.api_key`.
 
 "Not authenticated"
-  Run login for your provider:
-    :AICommit login anthropic
-    :AICommit login copilot
+  For Copilot, install copilot.vim or copilot.lua and authenticate there.
 
 "Not in a gitcommit buffer"
   The command works only in commit message buffer (opened by `git commit`).

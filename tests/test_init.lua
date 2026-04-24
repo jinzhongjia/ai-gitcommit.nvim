@@ -12,11 +12,15 @@ local function run_generate_with_mocks(overrides)
 	local original_loaded = {}
 	local modules = {
 		"ai-gitcommit",
+		"ai-gitcommit.autogen",
 		"ai-gitcommit.buffer",
+		"ai-gitcommit.buffer_state",
+		"ai-gitcommit.commands",
 		"ai-gitcommit.config",
+		"ai-gitcommit.context",
+		"ai-gitcommit.generator",
 		"ai-gitcommit.git",
 		"ai-gitcommit.prompt",
-		"ai-gitcommit.context",
 		"ai-gitcommit.providers",
 		"ai-gitcommit.auth",
 		"ai-gitcommit.typewriter",
@@ -128,7 +132,22 @@ local function run_generate_with_mocks(overrides)
 					end
 					on_done()
 				end,
+				has_credentials = function(_)
+					return true
+				end,
+				credential_status = function(_)
+					return "configured"
+				end,
+				resolve_credentials = function(_, callback)
+					callback({ api_key = "test-key" }, nil)
+				end,
 			}
+		end,
+		has_current_credentials = function()
+			return true
+		end,
+		status = function(_)
+			return "configured"
 		end,
 	}
 

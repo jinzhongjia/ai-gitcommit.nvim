@@ -13,12 +13,6 @@ local function matches_any_rule(filename, rules)
 	return false
 end
 
----@param text string
----@return number
-function M.estimate_tokens(text)
-	return math.ceil(#text / 4)
-end
-
 ---@param filename string
 ---@param patterns string[]
 ---@return boolean

@@ -1,29 +1,29 @@
-local stream = require("ai-gitcommit.stream")
+local openai_compat = require("ai-gitcommit.providers.openai_compat")
 
 local M = {}
 
----@param prompt string
----@param config AIGitCommit.ProviderConfig
----@param on_chunk fun(content: string)
----@param on_done fun()
----@param on_error fun(err: string)
-function M.generate(prompt, config, on_chunk, on_done, on_error)
-	local body = {
-		model = config.model,
-		max_tokens = config.max_tokens or 500,
-		messages = {
-			{ role = "user", content = prompt },
-		},
-		stream = true,
-	}
-
-	if config.stream_options ~= false then
-		body.stream_options = { include_usage = true }
+---@param api_key string|fun():string|nil
+---@return string?
+local function resolve_api_key(api_key)
+	if type(api_key) == "function" then
+		api_key = api_key()
 	end
+	if type(api_key) ~= "string" or api_key == "" then
+		return nil
+	end
+	return api_key
+end
 
-	local headers = {
-		["Content-Type"] = "application/json",
-	}
+---@param config AIGitCommit.ProviderConfig
+---@return boolean
+local function requires_api_key(config)
+	return config.api_key_required ~= false
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@return table<string, string>
+local function build_headers(config)
+	local headers = { ["Content-Type"] = "application/json" }
 
 	if type(config.api_key) == "string" and config.api_key ~= "" then
 		local header_name = config.api_key_header or "Authorization"
@@ -31,23 +31,45 @@ function M.generate(prompt, config, on_chunk, on_done, on_error)
 		headers[header_name] = prefix .. config.api_key
 	end
 
-	for key, value in pairs(config.extra_headers or {}) do
-		headers[key] = value
-	end
+	return headers
+end
 
-	stream.request({
-		url = config.endpoint,
-		method = "POST",
-		headers = headers,
-		body = body,
-	}, function(chunk)
-		if chunk.choices and chunk.choices[1] and chunk.choices[1].delta then
-			local content = chunk.choices[1].delta.content
-			if type(content) == "string" and content ~= "" then
-				on_chunk(content)
-			end
-		end
-	end, on_done, on_error)
+---@param prompt string
+---@param config AIGitCommit.ProviderConfig
+---@param on_chunk fun(content: string)
+---@param on_done fun()
+---@param on_error fun(err: string)
+function M.generate(prompt, config, on_chunk, on_done, on_error)
+	openai_compat.generate(prompt, config, {
+		build_headers = build_headers,
+		default_stream_options = true,
+	}, on_chunk, on_done, on_error)
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@return boolean
+function M.has_credentials(config)
+	if not requires_api_key(config) then
+		return true
+	end
+	return resolve_api_key(config.api_key) ~= nil
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@return string
+function M.credential_status(config)
+	return M.has_credentials(config) and "configured" or "not configured"
+end
+
+---@param config AIGitCommit.ProviderConfig
+---@param callback fun(creds?: AIGitCommit.Credentials, err?: string)
+function M.resolve_credentials(config, callback)
+	local api_key = resolve_api_key(config.api_key)
+	if requires_api_key(config) and not api_key then
+		callback(nil, "OpenAI API key not configured")
+		return
+	end
+	callback({ api_key = api_key or "" }, nil)
 end
 
 return M
