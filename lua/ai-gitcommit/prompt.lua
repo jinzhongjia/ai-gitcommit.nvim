@@ -15,8 +15,11 @@ Requirements:
   - chore: maintenance tasks
   - perf: performance improvement
 - Use present tense ("Add" not "Added")
-- Subject line must be under 72 characters
-- Prefer single-line; omit scope if unclear
+- Subject line must be under 72 characters; omit scope if unclear
+- If a body is needed, separate it from the subject with ONE blank line
+- Hard-wrap every body line at 72 characters (insert a real newline; do NOT emit one long line)
+- Use body paragraphs or `- ` bullet lines to group related points; separate paragraphs with a blank line
+- Keep the message concise: skip the body entirely when the subject already says enough
 - Write in {language}
 - Focus on WHY, not just WHAT
 
