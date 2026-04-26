@@ -15,8 +15,11 @@ Requirements:
   - chore: maintenance tasks
   - perf: performance improvement
 - Use present tense ("Add" not "Added")
-- Subject line must be under 72 characters
-- Prefer single-line; omit scope if unclear
+- Subject line must be under 72 characters; omit scope if unclear
+- If a body is needed, separate it from the subject with ONE blank line
+- Hard-wrap every body line at 72 characters (insert a real newline; do NOT emit one long line)
+- Use body paragraphs or `- ` bullet lines to group related points; separate paragraphs with a blank line
+- Keep the message concise: skip the body entirely when the subject already says enough
 - Write in {language}
 - Focus on WHY, not just WHAT
 
@@ -49,10 +52,11 @@ function M.build(opts)
 		template = opts.template or M.default_template
 	end
 
-	local staged_files_str = ""
+	local staged_files_parts = {}
 	for _, file in ipairs(opts.files or {}) do
-		staged_files_str = staged_files_str .. string.format("  %s  %s\n", file.status, file.file)
+		staged_files_parts[#staged_files_parts + 1] = string.format("  %s  %s", file.status, file.file)
 	end
+	local staged_files_str = #staged_files_parts > 0 and (table.concat(staged_files_parts, "\n") .. "\n") or ""
 
 	local extra = ""
 	if opts.extra_context and opts.extra_context ~= "" then
@@ -64,10 +68,13 @@ function M.build(opts)
 		return (s:gsub("%%", "%%%%"))
 	end
 
-	return (template:gsub("{language}", escape_replacement(opts.language or "English"))
-		:gsub("{extra_context}", escape_replacement(extra))
-		:gsub("{staged_files}", escape_replacement(staged_files_str))
-		:gsub("{diff}", escape_replacement(opts.diff or "")))
+	return (
+		template
+			:gsub("{language}", escape_replacement(opts.language or "English"))
+			:gsub("{extra_context}", escape_replacement(extra))
+			:gsub("{staged_files}", escape_replacement(staged_files_str))
+			:gsub("{diff}", escape_replacement(opts.diff or ""))
+	)
 end
 
 return M

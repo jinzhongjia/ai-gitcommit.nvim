@@ -11,13 +11,6 @@ end
 
 T["get"] = new_set()
 
-T["get"]["returns anthropic provider"] = function()
-	local provider = providers.get("anthropic")
-
-	MiniTest.expect.equality(type(provider), "table")
-	MiniTest.expect.equality(type(provider.generate), "function")
-end
-
 T["get"]["returns openai provider"] = function()
 	local provider = providers.get("openai")
 
@@ -42,6 +35,7 @@ T["openai generate"] = new_set()
 T["openai generate"]["sends completion request with stream options"] = function()
 	local original_stream = package.loaded["ai-gitcommit.stream"]
 	helpers.unload_module("ai-gitcommit.providers.openai")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	local captured = nil
 	package.loaded["ai-gitcommit.stream"] = {
@@ -64,6 +58,7 @@ T["openai generate"]["sends completion request with stream options"] = function(
 
 	package.loaded["ai-gitcommit.stream"] = original_stream
 	helpers.unload_module("ai-gitcommit.providers.openai")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)
@@ -79,6 +74,7 @@ end
 T["openai generate"]["supports openai-compatible endpoints without bearer auth"] = function()
 	local original_stream = package.loaded["ai-gitcommit.stream"]
 	helpers.unload_module("ai-gitcommit.providers.openai")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	local captured = nil
 	package.loaded["ai-gitcommit.stream"] = {
@@ -106,6 +102,7 @@ T["openai generate"]["supports openai-compatible endpoints without bearer auth"]
 
 	package.loaded["ai-gitcommit.stream"] = original_stream
 	helpers.unload_module("ai-gitcommit.providers.openai")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)
@@ -122,6 +119,7 @@ T["copilot generate"] = new_set()
 T["copilot generate"]["sends completion-only headers and payload"] = function()
 	local original_stream = package.loaded["ai-gitcommit.stream"]
 	helpers.unload_module("ai-gitcommit.providers.copilot")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	local captured = nil
 	package.loaded["ai-gitcommit.stream"] = {
@@ -144,6 +142,7 @@ T["copilot generate"]["sends completion-only headers and payload"] = function()
 
 	package.loaded["ai-gitcommit.stream"] = original_stream
 	helpers.unload_module("ai-gitcommit.providers.copilot")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)

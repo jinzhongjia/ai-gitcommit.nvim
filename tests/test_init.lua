@@ -12,11 +12,15 @@ local function run_generate_with_mocks(overrides)
 	local original_loaded = {}
 	local modules = {
 		"ai-gitcommit",
+		"ai-gitcommit.autogen",
 		"ai-gitcommit.buffer",
+		"ai-gitcommit.buffer_state",
+		"ai-gitcommit.commands",
 		"ai-gitcommit.config",
+		"ai-gitcommit.context",
+		"ai-gitcommit.generator",
 		"ai-gitcommit.git",
 		"ai-gitcommit.prompt",
-		"ai-gitcommit.context",
 		"ai-gitcommit.providers",
 		"ai-gitcommit.auth",
 		"ai-gitcommit.typewriter",
@@ -39,6 +43,12 @@ local function run_generate_with_mocks(overrides)
 		find_first_comment_line = function(_)
 			return 1
 		end,
+		get_existing_message = function(_)
+			return overrides.existing_message or ""
+		end,
+		is_amend_message_buffer = function(_)
+			return overrides.is_amend_message_buffer == true
+		end,
 	}
 
 	package.loaded["ai-gitcommit.config"] = {
@@ -54,7 +64,8 @@ local function run_generate_with_mocks(overrides)
 					endpoint = "https://api.openai.com/v1/chat/completions",
 					max_tokens = 500,
 				},
-			}, nil
+			},
+				nil
 		end,
 		get = function()
 			return {
@@ -82,6 +93,12 @@ local function run_generate_with_mocks(overrides)
 		get_staged_files = function(callback)
 			callback(overrides.files or { { status = "M", file = "a.lua" } }, overrides.files_err)
 		end,
+		get_head_diff = function(callback)
+			callback(overrides.head_diff or "diff --git a/head.lua b/head.lua", overrides.head_diff_err)
+		end,
+		get_head_files = function(callback)
+			callback(overrides.head_files or { { status = "M", file = "head.lua" } }, overrides.head_files_err)
+		end,
 	}
 
 	package.loaded["ai-gitcommit.prompt"] = {
@@ -108,13 +125,11 @@ local function run_generate_with_mocks(overrides)
 	package.loaded["ai-gitcommit.typewriter"] = {
 		new = function(_)
 			return {
-				push = function(_, _)
-				end,
+				push = function(_, _) end,
 				finish = function(_, callback)
 					callback()
 				end,
-				stop = function(_)
-				end,
+				stop = function(_) end,
 			}
 		end,
 	}
@@ -128,7 +143,22 @@ local function run_generate_with_mocks(overrides)
 					end
 					on_done()
 				end,
+				has_credentials = function(_)
+					return true
+				end,
+				credential_status = function(_)
+					return "configured"
+				end,
+				resolve_credentials = function(_, callback)
+					callback({ api_key = "test-key" }, nil)
+				end,
 			}
+		end,
+		has_current_credentials = function()
+			return true
+		end,
+		status = function(_)
+			return "configured"
 		end,
 	}
 
@@ -170,6 +200,30 @@ T["generate"]["shows success when provider returns content"] = function()
 	MiniTest.expect.equality(#notifications > 0, true)
 	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
 	MiniTest.expect.equality(notifications[2].msg, "Commit message generated!")
+end
+
+T["generate"]["falls back to HEAD diff when amending without staged changes"] = function()
+	local notifications = run_generate_with_mocks({
+		diff = "",
+		existing_message = "feat: previous subject",
+		is_amend_message_buffer = true,
+		chunk = "feat: rewrite commit message",
+	})
+
+	MiniTest.expect.equality(#notifications > 0, true)
+	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
+	MiniTest.expect.equality(notifications[2].msg, "Commit message generated!")
+end
+
+T["generate"]["does not fall back to HEAD diff outside amend flow"] = function()
+	local notifications = run_generate_with_mocks({
+		diff = "",
+		existing_message = "feat: previous subject",
+	})
+
+	MiniTest.expect.equality(#notifications > 0, true)
+	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
+	MiniTest.expect.equality(notifications[2].msg, "No staged changes found")
 end
 
 return T

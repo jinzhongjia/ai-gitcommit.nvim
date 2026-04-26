@@ -4,25 +4,22 @@ AI-powered git commit message generator for Neovim.
 
 Supported providers:
 - OpenAI (and compatible endpoints)
-- Anthropic
 - GitHub Copilot
 
 ## Requirements
 
 - Neovim 0.11+
 - curl
-- API key (OpenAI/Anthropic) or [copilot.vim](https://github.com/github/copilot.vim) / [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
+- OpenAI API key, or [copilot.vim](https://github.com/github/copilot.vim) / [copilot.lua](https://github.com/zbirenbaum/copilot.lua)
 
 ## Installation
 
 ```lua
--- lazy.nvim (Copilot)
+-- lazy.nvim (Copilot — default, no config needed if copilot.vim/copilot.lua is installed)
 {
   "your-username/ai-gitcommit.nvim",
   event = "FileType gitcommit",
-  opts = {
-    provider = "copilot",
-  },
+  opts = {},
 }
 
 -- lazy.nvim (OpenAI)
@@ -45,7 +42,6 @@ Supported providers:
 ```vim
 :AICommit                       " Generate commit message
 :AICommit [context]             " Generate with extra context
-:AICommit login <provider>      " OAuth login (anthropic only)
 :AICommit logout <provider>     " Clear auth state
 :AICommit status                " Show provider status
 :AICommit status <provider>     " Show one provider status
@@ -55,7 +51,7 @@ Supported providers:
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "copilot", -- required: "openai" | "anthropic" | "copilot"
+  provider = "copilot", -- "openai" | "copilot" (default: "copilot")
 
   providers = {
     openai = {
@@ -70,29 +66,40 @@ require("ai-gitcommit").setup({
       max_tokens = 500,
     },
 
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-      model = "claude-haiku-4-5",
-      endpoint = "https://api.anthropic.com/v1/messages",
-      max_tokens = 500,
-    },
-
     copilot = {
-      model = "grok-code-fast-1",
+      -- model = nil → auto-select cheapest available via /models
+      -- set a string to pin, e.g. "gpt-4o" or "claude-sonnet-4"
+      model = nil,
       endpoint = "https://api.githubcopilot.com/chat/completions",
       max_tokens = 500,
     },
   },
 
   languages = { "English", "Chinese", "Japanese", "Korean" },
-  prompt_template = nil,
+  prompt_template = nil, -- string or function(default_prompt) -> string
   keymap = nil,
   context = {
     max_diff_lines = 500,
     max_diff_chars = 15000,
   },
   filter = {
-    exclude_patterns = { "%.lock$", "package%-lock%.json$" },
+    exclude_patterns = {
+      "%.lock$",
+      "package%-lock%.json$",
+      "yarn%.lock$",
+      "pnpm%-lock%.yaml$",
+      "%.min%.[jc]ss?$",
+      "%.map$",
+      "%.pb%.go$",
+      "_grpc%.pb%.go$",
+      "%.pb%.cc$",
+      "%.pb%.h$",
+      "_pb2%.py$",
+      "_pb2_grpc%.py$",
+      "%.gen%.go$",
+      "%.connect%.go$",
+      "_connect%.ts$",
+    },
     exclude_paths = {},
     include_only = nil,
   },
@@ -115,20 +122,16 @@ Install and authenticate one of:
 
 Once authenticated there, `ai-gitcommit.nvim` will automatically detect the token.
 
-### Available models
+### Model selection
 
-The model depends on your Copilot subscription (Free/Pro/Pro+/Business/Enterprise):
+By default the plugin auto-detects which chat models your Copilot subscription
+allows (via Copilot's `/models` endpoint) and **picks the one with the lowest
+`billing.multiplier`** — i.e. the cheapest model you can use. Common result:
+`grok-code-fast-1` or `gpt-4o-mini` (both `0x` on most plans).
 
-| Model | ID | Notes |
-|---|---|---|
-| Grok Code Fast 1 | `grok-code-fast-1` | Default, fast and economical |
-| GPT-4.1 | `gpt-4.1` | Copilot's own default |
-| GPT-4o | `gpt-4o` | |
-| Claude Sonnet 4 | `claude-sonnet-4` | |
-| o3-mini | `o3-mini` | Reasoning model |
-| o4-mini | `o4-mini` | Reasoning model |
+Resolved model list is cached in memory for 30 minutes.
 
-Override via config:
+To pin a specific model, set it explicitly:
 
 ```lua
 providers = {
@@ -137,6 +140,10 @@ providers = {
   },
 },
 ```
+
+Typical available models (depends on your plan: Free / Pro / Pro+ / Business / Enterprise):
+`grok-code-fast-1`, `gpt-4.1`, `gpt-4o`, `gpt-4o-mini`, `claude-sonnet-4`,
+`o3-mini`, `o4-mini`, …
 
 ## OpenAI-compatible endpoints
 
@@ -156,28 +163,12 @@ providers = {
 - Vendor-specific headers: use `extra_headers`
 - If endpoint rejects OpenAI `stream_options`: set `stream_options = false`
 
-## Anthropic
-
-```lua
-{
-  provider = "anthropic",
-  providers = {
-    anthropic = {
-      api_key = vim.env.ANTHROPIC_API_KEY,
-    },
-  },
-}
-```
-
-Or use OAuth login:
-
-```vim
-:AICommit login anthropic
-```
-
 ## Custom Prompt Template
 
 Placeholders: `{language}`, `{extra_context}`, `{staged_files}`, `{diff}`
+
+`prompt_template` may be a string, or a function that receives the default
+prompt and returns a replacement string.
 
 ```lua
 prompt_template = [[
@@ -201,6 +192,15 @@ Output only the commit message, no explanation.
 - `filter.exclude_paths` — remove files by path pattern
 - `filter.include_only` — when non-empty, keep only matching files
 - Context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
+- Default excludes cover common lockfiles, sourcemaps/minified assets, and generated protobuf / GORM gen / Connect RPC outputs
+
+## Generation behavior
+
+- `:AICommit` works only in a `gitcommit` buffer
+- Generation uses staged changes by default
+- In `git commit --amend` buffers with an existing message and no staged changes, generation falls back to the current `HEAD` commit diff
+- When multiple `languages` are configured, a language picker is shown
+- When `auto.enabled = true`, generation starts automatically on `FileType gitcommit` after `debounce_ms`, but only if provider credentials are already available
 
 ## License
 

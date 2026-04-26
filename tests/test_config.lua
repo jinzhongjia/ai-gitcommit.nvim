@@ -11,10 +11,9 @@ T["setup"]["applies default config"] = function()
 	config.setup()
 
 	local cfg = config.get()
-	MiniTest.expect.equality(cfg.provider, nil)
+	MiniTest.expect.equality(cfg.provider, "copilot")
 	MiniTest.expect.equality(cfg.providers.openai.model, "gpt-4o-mini")
-	MiniTest.expect.equality(cfg.providers.anthropic.model, "claude-haiku-4-5")
-	MiniTest.expect.equality(cfg.providers.copilot.model, "grok-code-fast-1")
+	MiniTest.expect.equality(cfg.providers.copilot.model, nil)
 	MiniTest.expect.equality(cfg.languages[1], "English")
 end
 
@@ -43,18 +42,28 @@ T["get_provider"] = new_set()
 T["get_provider"]["returns selected provider config"] = function()
 	helpers.reset_config()
 	local config = require("ai-gitcommit.config")
-	config.setup({ provider = "anthropic" })
+	config.setup({ provider = "copilot" })
 
 	local provider, err = config.get_provider()
 	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(provider.name, "anthropic")
-	MiniTest.expect.equality(provider.config.endpoint, "https://api.anthropic.com/v1/messages")
+	MiniTest.expect.equality(provider.name, "copilot")
+	MiniTest.expect.equality(provider.config.endpoint, "https://api.githubcopilot.com/chat/completions")
 end
 
-T["get_provider"]["returns error when provider missing"] = function()
+T["get_provider"]["returns copilot by default"] = function()
 	helpers.reset_config()
 	local config = require("ai-gitcommit.config")
 	config.setup()
+
+	local provider, err = config.get_provider()
+	MiniTest.expect.equality(err, nil)
+	MiniTest.expect.equality(provider.name, "copilot")
+end
+
+T["get_provider"]["returns error when provider is empty string"] = function()
+	helpers.reset_config()
+	local config = require("ai-gitcommit.config")
+	config.setup({ provider = "" })
 
 	local provider, err = config.get_provider()
 	MiniTest.expect.equality(provider, nil)
@@ -116,7 +125,7 @@ T["reset"]["restores defaults"] = function()
 	config.reset()
 
 	local cfg = config.get()
-	MiniTest.expect.equality(cfg.provider, nil)
+	MiniTest.expect.equality(cfg.provider, "copilot")
 	MiniTest.expect.equality(cfg.languages[1], "English")
 end
 

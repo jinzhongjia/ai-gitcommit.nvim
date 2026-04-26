@@ -1,37 +1,44 @@
+local fs = require("ai-gitcommit.util.fs")
+local http = require("ai-gitcommit.util.http")
+
 local M = {}
 
+---@class AIGitCommit.CopilotTokenData
+---@field token string
+---@field expires_at? number
+---@field endpoint? string
+
+---@class AIGitCommit.CopilotTokenResult
+---@field token string
+---@field endpoint? string
+
+---@class AIGitCommit.CopilotModelsCache
+---@field ids string[]
+---@field expires_at number
+
+---@class AIGitCommit.CopilotTokenResponse
+---@field token string
+---@field expires_at? number
+---@field endpoints? { api?: string }
+
 local COPILOT_TOKEN_URL = "https://api.github.com/copilot_internal/v2/token"
+local COPILOT_API_VERSION = "2025-10-01"
+local MODELS_CACHE_TTL = 1800 -- 30 minutes
 local IS_WINDOWS = vim.fn.has("win32") == 1
 
--- Module-level memory cache
+---@type string?
 local _cached_oauth_token = nil
-local _cached_copilot_token = nil -- { token, expires_at, endpoint }
+---@type AIGitCommit.CopilotTokenData?
+local _cached_copilot_token = nil
 local _token_refresh_in_progress = false
+---@type fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)[]
 local _pending_callbacks = {}
-local _mock_fetch_copilot_token = nil -- For testing only
-
----@param path string
----@return string?
-local function read_file(path)
-	if vim.fn.filereadable(path) ~= 1 then
-		return nil
-	end
-	local lines = vim.fn.readfile(path)
-	return table.concat(lines, "\n")
-end
-
----@param args string[]
----@param callback fun(stdout: string, code: integer)
-local function curl(args, callback)
-	local full_cmd = { "curl" }
-	vim.list_extend(full_cmd, args)
-
-	vim.system(full_cmd, { text = true }, function(obj)
-		vim.schedule(function()
-			callback(obj.stdout or "", obj.code)
-		end)
-	end)
-end
+---@type fun(github_access_token: string, callback: fun(data?: AIGitCommit.CopilotTokenResponse, err?: string))?
+local _mock_fetch_copilot_token = nil
+---@type AIGitCommit.CopilotModelsCache?
+local _cached_models = nil
+---@type fun(copilot_token: string, endpoint: string, callback: fun(ids?: string[], err?: string))?
+local _mock_fetch_models = nil
 
 ---@param stdout string
 ---@param fallback string
@@ -76,13 +83,13 @@ local function is_auth_error(exit_code, stdout)
 end
 
 ---@param github_access_token string
----@param callback fun(data: table?, err: string?)
+---@param callback fun(data?: AIGitCommit.CopilotTokenResponse, err?: string)
 local function fetch_copilot_token(github_access_token, callback)
 	if _mock_fetch_copilot_token then
 		return _mock_fetch_copilot_token(github_access_token, callback)
 	end
 
-	curl({
+	http.curl({
 		"-s",
 		"-X",
 		"GET",
@@ -128,14 +135,17 @@ local function find_copilot_config_path()
 		return xdg
 	end
 
+	local home = os.getenv(IS_WINDOWS and "USERPROFILE" or "HOME") or vim.fn.expand("~")
+
 	if IS_WINDOWS then
 		local localappdata = os.getenv("LOCALAPPDATA")
 		if localappdata and localappdata ~= "" then
 			return localappdata
 		end
+		return vim.fs.joinpath(home, "AppData", "Local")
 	end
 
-	return vim.fs.joinpath(os.getenv("HOME") or vim.fn.expand("~"), ".config")
+	return vim.fs.joinpath(home, ".config")
 end
 
 --- Read OAuth token from installed Copilot plugin (copilot.vim / copilot.lua)
@@ -154,7 +164,7 @@ local function read_copilot_plugin_oauth_token()
 	local files = { "hosts.json", "apps.json" }
 	for _, filename in ipairs(files) do
 		local filepath = vim.fs.joinpath(copilot_dir, filename)
-		local content = read_file(filepath)
+		local content = fs.read_file(filepath)
 		if content then
 			local ok, data = pcall(vim.json.decode, content)
 			if ok and data then
@@ -189,7 +199,7 @@ local function resolve_oauth_token()
 	return nil
 end
 
----@param token_data table? { token, expires_at, endpoint }
+---@param token_data AIGitCommit.CopilotTokenData?
 ---@return boolean
 local function is_copilot_token_valid(token_data)
 	if not token_data or type(token_data.token) ~= "string" or token_data.token == "" then
@@ -204,7 +214,7 @@ local function is_copilot_token_valid(token_data)
 end
 
 --- Notify all pending callbacks and reset state
----@param token_data table?
+---@param token_data AIGitCommit.CopilotTokenResult?
 ---@param err string?
 local function notify_pending_callbacks(token_data, err)
 	local callbacks = _pending_callbacks
@@ -218,7 +228,7 @@ end
 
 --- Refresh copilot token using an OAuth token
 ---@param oauth_token string
----@param callback fun(token_data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 local function refresh_copilot_token(oauth_token, callback)
 	fetch_copilot_token(oauth_token, function(copilot_data, token_err)
 		if token_err then
@@ -243,7 +253,7 @@ end
 
 --- Get a valid Copilot token with concurrency protection
 ---@param oauth_token string
----@param callback fun(token_data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 local function get_valid_copilot_token(oauth_token, callback)
 	if is_copilot_token_valid(_cached_copilot_token) then
 		callback({ token = _cached_copilot_token.token, endpoint = _cached_copilot_token.endpoint }, nil)
@@ -268,7 +278,7 @@ function M.is_authenticated()
 	return resolve_oauth_token() ~= nil
 end
 
----@param callback fun(data: table?, err: string?)
+---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 function M.get_token(callback)
 	local oauth_token = resolve_oauth_token()
 	if not oauth_token then
@@ -279,14 +289,160 @@ function M.get_token(callback)
 	get_valid_copilot_token(oauth_token, callback)
 end
 
----@param callback fun(data: table?, err: string?)
-function M.login(callback)
-	callback(nil, "Copilot provider reads tokens from copilot.vim or copilot.lua plugin. Install one of them and authenticate there")
+---@param endpoint string
+---@return string
+local function models_url_from_chat_endpoint(endpoint)
+	-- Derive the base from a chat completions endpoint like
+	-- https://api.githubcopilot.com/chat/completions -> https://api.githubcopilot.com/models
+	local base = endpoint:match("^(https?://[^/]+)")
+	if base then
+		return base .. "/models"
+	end
+	return "https://api.githubcopilot.com/models"
+end
+
+---@param model table
+---@return number
+local function model_multiplier(model)
+	local billing = model.billing
+	if type(billing) == "table" and type(billing.multiplier) == "number" then
+		return billing.multiplier
+	end
+	-- Unknown cost → rank after known-cost models.
+	return math.huge
+end
+
+--- Parse Copilot /models response and return chat-capable model IDs,
+--- sorted by billing multiplier ascending (cheapest first). Ties preserve
+--- the order returned by the API.
+---@param body string
+---@return string[]?, string?
+local function parse_models_response(body)
+	local ok, data = pcall(vim.json.decode, body)
+	if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
+		return nil, "Invalid /models response"
+	end
+
+	local entries = {}
+	for idx, model in ipairs(data.data) do
+		if type(model) == "table" and model.model_picker_enabled then
+			local is_chat = false
+			local caps = model.capabilities
+			if type(caps) == "table" then
+				local ctype = caps.type
+				if type(ctype) == "string" then
+					is_chat = ctype == "chat"
+				elseif type(ctype) == "table" then
+					is_chat = vim.tbl_contains(ctype, "chat")
+				end
+			end
+			if is_chat and type(model.id) == "string" and model.id ~= "" then
+				table.insert(entries, {
+					id = model.id,
+					multiplier = model_multiplier(model),
+					order = idx,
+				})
+			end
+		end
+	end
+
+	if #entries == 0 then
+		return nil, "No usable chat models returned by Copilot"
+	end
+
+	table.sort(entries, function(a, b)
+		if a.multiplier ~= b.multiplier then
+			return a.multiplier < b.multiplier
+		end
+		return a.order < b.order
+	end)
+
+	local ids = {}
+	for i, entry in ipairs(entries) do
+		ids[i] = entry.id
+	end
+	return ids, nil
+end
+
+---@param copilot_token string
+---@param endpoint string
+---@param callback fun(ids?: string[], err?: string)
+local function request_models(copilot_token, endpoint, callback)
+	if _mock_fetch_models then
+		return _mock_fetch_models(copilot_token, endpoint, callback)
+	end
+
+	http.curl({
+		"-s",
+		"-X",
+		"GET",
+		"--fail-with-body",
+		"-H",
+		"Accept: application/json",
+		"-H",
+		"User-Agent: ai-gitcommit.nvim",
+		"-H",
+		"Authorization: Bearer " .. copilot_token,
+		"-H",
+		"Copilot-Integration-Id: vscode-chat",
+		"-H",
+		"X-Github-Api-Version: " .. COPILOT_API_VERSION,
+		models_url_from_chat_endpoint(endpoint),
+	}, function(stdout, exit_code)
+		if exit_code ~= 0 then
+			callback(nil, decode_error(stdout, "Failed to fetch Copilot models"))
+			return
+		end
+		local ids, err = parse_models_response(stdout)
+		if err then
+			callback(nil, err)
+			return
+		end
+		callback(ids, nil)
+	end)
+end
+
+---@param models AIGitCommit.CopilotModelsCache?
+---@return boolean
+local function is_models_cache_valid(models)
+	return models ~= nil
+		and type(models.ids) == "table"
+		and #models.ids > 0
+		and type(models.expires_at) == "number"
+		and models.expires_at > os.time()
+end
+
+--- Fetch the list of Copilot model IDs available to the current account.
+--- Results are cached in memory for 30 minutes.
+---@param callback fun(ids?: string[], err?: string)
+function M.fetch_models(callback)
+	if is_models_cache_valid(_cached_models) then
+		callback(vim.deepcopy(_cached_models.ids), nil)
+		return
+	end
+
+	M.get_token(function(token_data, token_err)
+		if token_err then
+			callback(nil, token_err)
+			return
+		end
+
+		local endpoint = token_data.endpoint or "https://api.githubcopilot.com/chat/completions"
+		request_models(token_data.token, endpoint, function(ids, err)
+			if err then
+				callback(nil, err)
+				return
+			end
+			_cached_models = { ids = ids, expires_at = os.time() + MODELS_CACHE_TTL }
+			callback(vim.deepcopy(ids), nil)
+		end)
+	end)
 end
 
 function M.logout()
 	_cached_oauth_token = nil
 	_cached_copilot_token = nil
+	_cached_models = nil
 	_token_refresh_in_progress = false
 	_pending_callbacks = {}
 end
@@ -316,6 +472,20 @@ M._testing = {
 	clear_mock_fetch_copilot_token = function()
 		_mock_fetch_copilot_token = nil
 	end,
+	set_mock_fetch_models = function(mock_fn)
+		_mock_fetch_models = mock_fn
+	end,
+	clear_mock_fetch_models = function()
+		_mock_fetch_models = nil
+	end,
+	set_cached_models = function(models)
+		_cached_models = models
+	end,
+	get_cached_models = function()
+		return _cached_models
+	end,
+	parse_models_response = parse_models_response,
+	models_url_from_chat_endpoint = models_url_from_chat_endpoint,
 }
 
 return M

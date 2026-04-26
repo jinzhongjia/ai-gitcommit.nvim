@@ -9,18 +9,6 @@ T["setup"] = function()
 	context = require("ai-gitcommit.context")
 end
 
-T["estimate_tokens"] = new_set()
-
-T["estimate_tokens"]["estimates ~4 chars per token"] = function()
-	local tokens = context.estimate_tokens("hello world")
-	MiniTest.expect.equality(tokens, 3)
-end
-
-T["estimate_tokens"]["handles empty string"] = function()
-	local tokens = context.estimate_tokens("")
-	MiniTest.expect.equality(tokens, 0)
-end
-
 T["should_exclude_file"] = new_set()
 
 T["should_exclude_file"]["returns true for matching pattern"] = function()

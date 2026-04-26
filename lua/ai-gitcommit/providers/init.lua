@@ -1,21 +1,48 @@
+local config = require("ai-gitcommit.config")
+
 local M = {}
 
+-- luacheck: push no max line length
+---@class AIGitCommit.Provider
+---@field generate fun(prompt: string, config: AIGitCommit.ProviderConfig, on_chunk: fun(content: string), on_done: fun(), on_error: fun(err: string))
+---@field has_credentials fun(config: AIGitCommit.ProviderConfig): boolean
+---@field credential_status fun(config: AIGitCommit.ProviderConfig): string
+---@field resolve_credentials fun(config: AIGitCommit.ProviderConfig, callback: fun(creds?: AIGitCommit.Credentials, err?: string))
+-- luacheck: pop
+
+local registry = {
+	openai = "ai-gitcommit.providers.openai",
+	copilot = "ai-gitcommit.providers.copilot",
+}
+
 ---@param provider string
----@return table
+---@return AIGitCommit.Provider
 function M.get(provider)
-	if provider == "openai" then
-		return require("ai-gitcommit.providers.openai")
+	local mod_path = registry[provider]
+	if not mod_path then
+		error("Unsupported provider: " .. tostring(provider))
 	end
+	return require(mod_path)
+end
 
-	if provider == "anthropic" then
-		return require("ai-gitcommit.providers.anthropic")
+---@return boolean
+function M.has_current_credentials()
+	local info, _ = config.get_provider()
+	if not info then
+		return false
 	end
+	return M.get(info.name).has_credentials(info.config)
+end
 
-	if provider == "copilot" then
-		return require("ai-gitcommit.providers.copilot")
+---@param name string
+---@return string
+function M.status(name)
+	local cfg = config.get()
+	local provider_config = cfg.providers and cfg.providers[name]
+	if not provider_config then
+		return "not configured"
 	end
-
-	error("Unsupported provider: " .. tostring(provider))
+	return M.get(name).credential_status(provider_config)
 end
 
 return M

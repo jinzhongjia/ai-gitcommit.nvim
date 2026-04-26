@@ -1,5 +1,13 @@
 local M = {}
 
+---@param timer userdata
+local function cancel_timer(timer)
+	pcall(function()
+		timer:stop()
+		timer:close()
+	end)
+end
+
 ---@class AIGitCommit.Typewriter
 ---@field private queue string[]
 ---@field private queue_len number
@@ -152,27 +160,24 @@ function M:_update_buffer()
 		return
 	end
 
-	local lines = {}
-	for i, line in ipairs(self.displayed) do
-		lines[i] = line
-	end
-
-	if #lines > 0 and lines[#lines] ~= "" then
-		table.insert(lines, "")
+	local needs_trailing = #self.displayed > 0 and self.displayed[#self.displayed] ~= ""
+	if needs_trailing then
+		table.insert(self.displayed, "")
 	end
 
 	local delete_to = math.max(self.written_lines, self.first_comment_line - 1)
-	vim.api.nvim_buf_set_lines(self.bufnr, 0, delete_to, false, lines)
-	self.written_lines = #lines
+	vim.api.nvim_buf_set_lines(self.bufnr, 0, delete_to, false, self.displayed)
+	self.written_lines = #self.displayed
+
+	if needs_trailing then
+		table.remove(self.displayed)
+	end
 end
 
 function M:flush()
 	self.running = false
 	if self.timer then
-		pcall(function()
-			self.timer:stop()
-			self.timer:close()
-		end)
+		cancel_timer(self.timer)
 		self.timer = nil
 	end
 
@@ -200,10 +205,7 @@ end
 function M:stop()
 	self.running = false
 	if self.timer then
-		pcall(function()
-			self.timer:stop()
-			self.timer:close()
-		end)
+		cancel_timer(self.timer)
 		self.timer = nil
 	end
 	self.queue = {}

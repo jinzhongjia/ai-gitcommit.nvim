@@ -5,9 +5,14 @@
 ---@field api_key_prefix? string
 ---@field extra_headers? table<string, string>
 ---@field stream_options? boolean
----@field model string
+---@field model? string
 ---@field endpoint string
 ---@field max_tokens number
+
+---@class AIGitCommit.Credentials
+---@field api_key? string
+---@field endpoint? string
+---@field model? string
 
 ---@class AIGitCommit.ContextConfig
 ---@field max_diff_lines? number
@@ -32,17 +37,20 @@
 ---@field keymap? string
 ---@field auto? AIGitCommit.AutoConfig
 
+---@class AIGitCommit.ProviderInfo
+---@field name string
+---@field config AIGitCommit.ProviderConfig
+
 local M = {}
 
 local supported_providers = {
 	openai = true,
-	anthropic = true,
 	copilot = true,
 }
 
 ---@type AIGitCommit.Config
 local defaults = {
-	provider = nil,
+	provider = "copilot",
 	providers = {
 		openai = {
 			api_key = nil,
@@ -55,14 +63,10 @@ local defaults = {
 			endpoint = "https://api.openai.com/v1/chat/completions",
 			max_tokens = 500,
 		},
-		anthropic = {
-			api_key = nil,
-			model = "claude-haiku-4-5",
-			endpoint = "https://api.anthropic.com/v1/messages",
-			max_tokens = 500,
-		},
 		copilot = {
-			model = "grok-code-fast-1",
+			-- model is resolved dynamically from Copilot's /models endpoint;
+			-- set explicitly here to pin a specific model.
+			model = nil,
 			endpoint = "https://api.githubcopilot.com/chat/completions",
 			max_tokens = 500,
 		},
@@ -144,11 +148,11 @@ function M.get()
 	return config
 end
 
----@return { name: string, config: AIGitCommit.ProviderConfig }?, string?
+---@return AIGitCommit.ProviderInfo?, string?
 function M.get_provider()
 	local provider_name = config.provider
 	if not provider_name or provider_name == "" then
-		return nil, "No provider configured. Set `provider = \"openai\"|\"anthropic\"|\"copilot\"`"
+		return nil, 'No provider configured. Set `provider = "openai"|"copilot"`'
 	end
 
 	if not supported_providers[provider_name] then
@@ -176,8 +180,11 @@ function M.validate_provider()
 		return false, err
 	end
 
-	if type(provider.config.model) ~= "string" or provider.config.model == "" then
-		return false, "Invalid provider model for: " .. provider.name
+	-- Copilot resolves model at runtime from /models; allow empty here.
+	if provider.name ~= "copilot" then
+		if type(provider.config.model) ~= "string" or provider.config.model == "" then
+			return false, "Invalid provider model for: " .. provider.name
+		end
 	end
 
 	if type(provider.config.endpoint) ~= "string" or provider.config.endpoint == "" then
