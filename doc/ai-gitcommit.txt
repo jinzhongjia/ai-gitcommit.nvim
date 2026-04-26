@@ -21,6 +21,8 @@ Supported providers:
 Requirements:
   - Neovim 0.11+
   - curl
+  - OpenAI API key, or an authenticated Copilot plugin
+    (`copilot.vim` or `copilot.lua`)
 
 ==============================================================================
 2. CONFIGURATION                                  *ai-gitcommit-config*
@@ -69,7 +71,7 @@ Full setup: >
     },
 
     languages = { "English", "Chinese", "Japanese", "Korean" },
-    prompt_template = nil,
+    prompt_template = nil, -- string or function(default_prompt) -> string
 
     context = {
       max_diff_lines = 500,
@@ -84,12 +86,21 @@ Full setup: >
         "pnpm%-lock%.yaml$",
         "%.min%.[jc]ss?$",
         "%.map$",
+        "%.pb%.go$",
+        "_grpc%.pb%.go$",
+        "%.pb%.cc$",
+        "%.pb%.h$",
+        "_pb2%.py$",
+        "_pb2_grpc%.py$",
+        "%.gen%.go$",
+        "%.connect%.go$",
+        "_connect%.ts$",
       },
       exclude_paths = {}, -- path rules (Lua patterns)
       include_only = nil, -- only include matching paths
     },
 
-    keymap = nil,
+    keymap = nil, -- normal-mode mapping for manual generation
     auto = {
       enabled = true,
       debounce_ms = 450,
@@ -102,15 +113,30 @@ Custom prompt placeholders:
   - {staged_files}
   - {diff}
 
+Prompt template notes:
+  - `prompt_template` may be a string, or a function that receives the
+    default prompt and returns a replacement string.
+
 Diff context behavior:
   - Files matching `exclude_patterns` are removed.
   - Files matching `exclude_paths` are removed.
   - If `include_only` is non-empty, only matching files are included.
   - Context is truncated by `context.max_diff_lines`, then by
     `context.max_diff_chars`.
+  - Default excludes cover common lockfiles, sourcemaps/minified assets, and
+    generated protobuf / GORM gen / Connect RPC outputs.
+
+Generation behavior:
+  - `:AICommit` works only in a `gitcommit` buffer.
+  - Generation requires staged changes.
+  - When multiple `languages` are configured, a language picker is shown.
+  - When `auto.enabled = true`, generation starts automatically on
+    `FileType gitcommit` after `debounce_ms`, but only if provider
+    credentials are already available.
 
 Provider config validation:
-  - providers.<name>.model must be non-empty string
+  - providers.openai.model must be non-empty string
+  - providers.copilot.model may be nil to auto-resolve from `/models`
   - providers.<name>.endpoint must be non-empty string
   - providers.<name>.max_tokens must be > 0
 
@@ -121,7 +147,7 @@ Provider config validation:
   Generate commit message in gitcommit buffer.
 
 :AICommit logout <provider>                       *:AICommit-logout*
-  Logout provider.
+  Logout provider auth state.
 
 :AICommit status                                  *:AICommit-status*
   Show all provider status.
@@ -134,8 +160,12 @@ Provider config validation:
   - copilot
 
 Notes:
-  - OpenAI uses API key config.
-  - Copilot reads tokens from copilot.vim or copilot.lua.
+  - OpenAI uses API key config and `status` reports `configured` or
+    `not configured`.
+  - Copilot reads tokens from copilot.vim or copilot.lua and `status`
+    reports `authenticated` or `not authenticated`.
+  - `logout` is mainly useful for `copilot`; OpenAI has no auth session to
+    clear.
   - Empty provider output is reported as warning (no false success message).
   - Git command failures are reported as errors.
 
@@ -144,6 +174,7 @@ Notes:
 
 OpenAI:
   Configure `providers.openai.api_key`.
+  `api_key` may be a string or a function returning a string.
 
 OpenAI-compatible:
   Reuse the `openai` provider and customize:

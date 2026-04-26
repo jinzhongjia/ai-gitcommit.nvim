@@ -76,14 +76,30 @@ require("ai-gitcommit").setup({
   },
 
   languages = { "English", "Chinese", "Japanese", "Korean" },
-  prompt_template = nil,
+  prompt_template = nil, -- string or function(default_prompt) -> string
   keymap = nil,
   context = {
     max_diff_lines = 500,
     max_diff_chars = 15000,
   },
   filter = {
-    exclude_patterns = { "%.lock$", "package%-lock%.json$" },
+    exclude_patterns = {
+      "%.lock$",
+      "package%-lock%.json$",
+      "yarn%.lock$",
+      "pnpm%-lock%.yaml$",
+      "%.min%.[jc]ss?$",
+      "%.map$",
+      "%.pb%.go$",
+      "_grpc%.pb%.go$",
+      "%.pb%.cc$",
+      "%.pb%.h$",
+      "_pb2%.py$",
+      "_pb2_grpc%.py$",
+      "%.gen%.go$",
+      "%.connect%.go$",
+      "_connect%.ts$",
+    },
     exclude_paths = {},
     include_only = nil,
   },
@@ -151,6 +167,9 @@ providers = {
 
 Placeholders: `{language}`, `{extra_context}`, `{staged_files}`, `{diff}`
 
+`prompt_template` may be a string, or a function that receives the default
+prompt and returns a replacement string.
+
 ```lua
 prompt_template = [[
 Generate a commit message for the following changes.
@@ -173,6 +192,14 @@ Output only the commit message, no explanation.
 - `filter.exclude_paths` — remove files by path pattern
 - `filter.include_only` — when non-empty, keep only matching files
 - Context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
+- Default excludes cover common lockfiles, sourcemaps/minified assets, and generated protobuf / GORM gen / Connect RPC outputs
+
+## Generation behavior
+
+- `:AICommit` works only in a `gitcommit` buffer
+- Generation requires staged changes
+- When multiple `languages` are configured, a language picker is shown
+- When `auto.enabled = true`, generation starts automatically on `FileType gitcommit` after `debounce_ms`, but only if provider credentials are already available
 
 ## License
 

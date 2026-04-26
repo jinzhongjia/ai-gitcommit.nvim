@@ -77,14 +77,30 @@ require("ai-gitcommit").setup({
   },
 
   languages = { "Chinese", "English" },
-  prompt_template = nil,
+  prompt_template = nil, -- 字符串或 function(default_prompt) -> string
   keymap = nil,
   context = {
     max_diff_lines = 500,
     max_diff_chars = 15000,
   },
   filter = {
-    exclude_patterns = { "%.lock$", "package%-lock%.json$" },
+    exclude_patterns = {
+      "%.lock$",
+      "package%-lock%.json$",
+      "yarn%.lock$",
+      "pnpm%-lock%.yaml$",
+      "%.min%.[jc]ss?$",
+      "%.map$",
+      "%.pb%.go$",
+      "_grpc%.pb%.go$",
+      "%.pb%.cc$",
+      "%.pb%.h$",
+      "_pb2%.py$",
+      "_pb2_grpc%.py$",
+      "%.gen%.go$",
+      "%.connect%.go$",
+      "_connect%.ts$",
+    },
     exclude_paths = {},
     include_only = nil,
   },
@@ -151,6 +167,8 @@ providers = {
 
 占位符：`{language}`、`{extra_context}`、`{staged_files}`、`{diff}`
 
+`prompt_template` 可以是字符串，也可以是接收默认 prompt 并返回新字符串的函数。
+
 ```lua
 prompt_template = [[
 为以下更改生成 commit message。
@@ -173,6 +191,14 @@ Diff:
 - `filter.exclude_paths` — 按路径模式排除文件
 - `filter.include_only` — 非空时仅保留匹配的文件
 - 上下文先按 `context.max_diff_lines` 截断，再按 `context.max_diff_chars` 截断
+- 默认排除规则覆盖常见 lockfile、sourcemap / minified 产物，以及 protobuf / GORM gen / Connect RPC 生成文件
+
+## 生成行为
+
+- `:AICommit` 只能在 `gitcommit` buffer 中使用
+- 必须有已暂存的改动才能生成
+- 当配置了多个 `languages` 时，会弹出语言选择器
+- 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用
 
 ## License
 
