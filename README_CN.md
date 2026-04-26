@@ -196,7 +196,8 @@ Diff:
 ## 生成行为
 
 - `:AICommit` 只能在 `gitcommit` buffer 中使用
-- 必须有已暂存的改动才能生成
+- 默认基于已暂存的改动生成
+- 在 `git commit --amend` 场景下，如果当前 buffer 已有旧 message 且没有新的 staged changes，会回退到当前 `HEAD` commit 的 diff 作为生成上下文
 - 当配置了多个 `languages` 时，会弹出语言选择器
 - 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用
 

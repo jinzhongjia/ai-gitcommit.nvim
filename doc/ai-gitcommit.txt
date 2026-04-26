@@ -128,7 +128,9 @@ Diff context behavior:
 
 Generation behavior:
   - `:AICommit` works only in a `gitcommit` buffer.
-  - Generation requires staged changes.
+  - Generation uses staged changes by default.
+  - In `git commit --amend` buffers with an existing message and no staged
+    changes, generation falls back to the current `HEAD` commit diff.
   - When multiple `languages` are configured, a language picker is shown.
   - When `auto.enabled = true`, generation starts automatically on
     `FileType gitcommit` after `debounce_ms`, but only if provider

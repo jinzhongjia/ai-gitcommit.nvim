@@ -9,6 +9,70 @@ local typewriter = require("ai-gitcommit.typewriter")
 
 local M = {}
 
+---@param existing_context? string
+---@param amend_note? string
+---@return string?
+local function merge_extra_context(existing_context, amend_note)
+	if not amend_note or amend_note == "" then
+		return existing_context
+	end
+
+	if not existing_context or existing_context == "" then
+		return amend_note
+	end
+
+	return string.format("%s\n%s", existing_context, amend_note)
+end
+
+---@param bufnr integer
+---@param callback fun(diff: string, files: AIGitCommit.StagedFile[], amend_note: string?, err: string?)
+local function get_diff_context(bufnr, callback)
+	git.get_staged_diff(function(diff, diff_err)
+		if diff_err then
+			callback("", {}, nil, diff_err)
+			return
+		end
+
+		git.get_staged_files(function(files, files_err)
+			if files_err then
+				callback("", {}, nil, files_err)
+				return
+			end
+
+			if diff ~= "" then
+				callback(diff, files, nil, nil)
+				return
+			end
+
+			if buffer.get_existing_message(bufnr) == "" then
+				callback(diff, files, nil, nil)
+				return
+			end
+
+			git.get_head_diff(function(head_diff, head_diff_err)
+				if head_diff_err then
+					callback("", {}, nil, head_diff_err)
+					return
+				end
+
+				git.get_head_files(function(head_files, head_files_err)
+					if head_files_err then
+						callback("", {}, nil, head_files_err)
+						return
+					end
+
+					callback(
+						head_diff,
+						head_files,
+						"This commit message is being amended without staged changes. Use the current HEAD commit diff below as the context to rewrite the message.",
+						nil
+					)
+				end)
+			end)
+		end)
+	end)
+end
+
 ---@param language string
 ---@param extra_context? string
 ---@param bufnr? integer
@@ -44,83 +108,77 @@ function M.run(language, extra_context, bufnr, silent)
 		vim.notify("Generating commit message...", vim.log.levels.INFO)
 	end
 
-	git.get_staged_diff(function(diff, diff_err)
+	get_diff_context(bufnr, function(diff, files, amend_note, diff_err)
 		if diff_err then
 			return fail("Error: " .. diff_err)
 		end
 
-		git.get_staged_files(function(files, files_err)
-			if files_err then
-				return fail("Error: " .. files_err)
+		if diff == "" then
+			return fail("No staged changes found", vim.log.levels.WARN)
+		end
+
+		local cfg = config.get()
+		local processed_diff = context.build_context(diff, cfg)
+
+		local final_prompt = prompt.build({
+			template = cfg.prompt_template,
+			language = language,
+			extra_context = merge_extra_context(extra_context, amend_note),
+			files = files,
+			diff = processed_diff,
+		})
+
+		local provider = providers.get(provider_info.name)
+
+		provider.resolve_credentials(provider_info.config, function(creds, creds_err)
+			if creds_err then
+				return fail(creds_err)
 			end
 
-			if diff == "" then
-				return fail("No staged changes found", vim.log.levels.WARN)
+			local provider_config = vim.deepcopy(provider_info.config)
+			if creds.api_key ~= nil then
+				provider_config.api_key = creds.api_key
+			end
+			if creds.endpoint then
+				provider_config.endpoint = creds.endpoint
+			end
+			if creds.model then
+				provider_config.model = creds.model
 			end
 
-			local cfg = config.get()
-			local processed_diff = context.build_context(diff, cfg)
-
-			local final_prompt = prompt.build({
-				template = cfg.prompt_template,
-				language = language,
-				extra_context = extra_context,
-				files = files,
-				diff = processed_diff,
+			local first_comment = buffer.find_first_comment_line(bufnr)
+			local tw = typewriter.new({
+				bufnr = bufnr,
+				first_comment_line = first_comment,
+				interval_ms = 12,
+				chars_per_tick = 4,
 			})
+			local has_content = false
 
-			local provider = providers.get(provider_info.name)
-
-			provider.resolve_credentials(provider_info.config, function(creds, creds_err)
-				if creds_err then
-					return fail(creds_err)
-				end
-
-				local provider_config = vim.deepcopy(provider_info.config)
-				if creds.api_key ~= nil then
-					provider_config.api_key = creds.api_key
-				end
-				if creds.endpoint then
-					provider_config.endpoint = creds.endpoint
-				end
-				if creds.model then
-					provider_config.model = creds.model
-				end
-
-				local first_comment = buffer.find_first_comment_line(bufnr)
-				local tw = typewriter.new({
-					bufnr = bufnr,
-					first_comment_line = first_comment,
-					interval_ms = 12,
-					chars_per_tick = 4,
-				})
-				local has_content = false
-
-				provider.generate(final_prompt, provider_config, function(chunk)
-					has_content = true
-					tw:push(chunk)
-				end, function()
-					tw:finish(function()
-						state.generating = false
-						if not has_content then
-							if not silent then
-								vim.notify("No message content received from provider", vim.log.levels.WARN)
-							end
-							return
-						end
-
-						if vim.api.nvim_buf_is_valid(bufnr) then
-							state.generated = true
-						end
-
+			provider.generate(final_prompt, provider_config, function(chunk)
+				has_content = true
+				tw:push(chunk)
+			end, function()
+				tw:finish(function()
+					state.generating = false
+					if not has_content then
 						if not silent then
-							vim.notify("Commit message generated!", vim.log.levels.INFO)
+							vim.notify("No message content received from provider", vim.log.levels.WARN)
 						end
-					end)
-				end, function(gen_err)
-					tw:stop()
-					fail("Error: " .. gen_err)
+						return
+					end
+
+					if vim.api.nvim_buf_is_valid(bufnr) then
+						state.generated = true
+					end
+
+					if not silent then
+						vim.notify("Commit message generated!", vim.log.levels.INFO)
+					end
 				end)
+			end, function(gen_err)
+				tw:stop()
+				fail("Error: " .. gen_err)
 			end)
 		end)
 	end)

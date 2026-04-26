@@ -43,6 +43,9 @@ local function run_generate_with_mocks(overrides)
 		find_first_comment_line = function(_)
 			return 1
 		end,
+		get_existing_message = function(_)
+			return overrides.existing_message or ""
+		end,
 	}
 
 	package.loaded["ai-gitcommit.config"] = {
@@ -86,6 +89,12 @@ local function run_generate_with_mocks(overrides)
 		end,
 		get_staged_files = function(callback)
 			callback(overrides.files or { { status = "M", file = "a.lua" } }, overrides.files_err)
+		end,
+		get_head_diff = function(callback)
+			callback(overrides.head_diff or "diff --git a/head.lua b/head.lua", overrides.head_diff_err)
+		end,
+		get_head_files = function(callback)
+			callback(overrides.head_files or { { status = "M", file = "head.lua" } }, overrides.head_files_err)
 		end,
 	}
 
@@ -184,6 +193,18 @@ end
 
 T["generate"]["shows success when provider returns content"] = function()
 	local notifications = run_generate_with_mocks({ chunk = "feat: add tests" })
+
+	MiniTest.expect.equality(#notifications > 0, true)
+	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
+	MiniTest.expect.equality(notifications[2].msg, "Commit message generated!")
+end
+
+T["generate"]["falls back to HEAD diff when amending without staged changes"] = function()
+	local notifications = run_generate_with_mocks({
+		diff = "",
+		existing_message = "feat: previous subject",
+		chunk = "feat: rewrite commit message",
+	})
 
 	MiniTest.expect.equality(#notifications > 0, true)
 	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")

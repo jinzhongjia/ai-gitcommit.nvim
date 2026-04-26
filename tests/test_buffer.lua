@@ -59,6 +59,37 @@ T["find_first_comment_line"]["returns line count + 1 when no comments"] = functi
 	helpers.cleanup_buffer(bufnr)
 end
 
+T["find_first_comment_line"]["respects custom git comment prefix"] = function()
+	local bufnr = vim.api.nvim_create_buf(false, true)
+	vim.bo[bufnr].commentstring = "; %s"
+	vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
+		"feat: existing message",
+		"",
+		"; Please enter the commit message",
+	})
+
+	local line = buffer.find_first_comment_line(bufnr)
+	MiniTest.expect.equality(line, 3)
+
+	helpers.cleanup_buffer(bufnr)
+end
+
+T["get_existing_message"] = new_set()
+
+T["get_existing_message"]["returns message before comments"] = function()
+	local bufnr = vim.api.nvim_create_buf(false, true)
+	vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
+		"feat: existing message",
+		"",
+		"# Comment line",
+	})
+
+	local message = buffer.get_existing_message(bufnr)
+	MiniTest.expect.equality(message, "feat: existing message")
+
+	helpers.cleanup_buffer(bufnr)
+end
+
 T["set_commit_message"] = new_set()
 
 T["set_commit_message"]["sets message before comments"] = function()

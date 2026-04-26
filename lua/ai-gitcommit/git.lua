@@ -32,11 +32,37 @@ local function build_git_error(stdout, stderr, fallback)
 	return fallback
 end
 
+---@param stdout string
+---@return AIGitCommit.StagedFile[]
+local function parse_name_status(stdout)
+	---@type AIGitCommit.StagedFile[]
+	local files = {}
+	for line in stdout:gmatch("[^\n]+") do
+		local status, file = line:match("^(%S+)%s+(.+)$")
+		if status and file then
+			table.insert(files, { status = status, file = file })
+		end
+	end
+	return files
+end
+
 ---@param callback fun(diff: string, err: string?)
 function M.get_staged_diff(callback)
 	run_git({ "diff", "--cached" }, function(stdout, code, stderr)
 		if code ~= 0 then
 			callback("", build_git_error(stdout, stderr, "Failed to get staged diff"))
+			return
+		end
+
+		callback(stdout, nil)
+	end)
+end
+
+---@param callback fun(diff: string, err: string?)
+function M.get_head_diff(callback)
+	run_git({ "show", "--format=", "--no-ext-diff", "HEAD" }, function(stdout, code, stderr)
+		if code ~= 0 then
+			callback("", build_git_error(stdout, stderr, "Failed to get HEAD diff"))
 			return
 		end
 
@@ -56,14 +82,19 @@ function M.get_staged_files(callback)
 			return
 		end
 
-		local files = {}
-		for line in stdout:gmatch("[^\n]+") do
-			local status, file = line:match("^(%S+)%s+(.+)$")
-			if status and file then
-				table.insert(files, { status = status, file = file })
-			end
+		callback(parse_name_status(stdout), nil)
+	end)
+end
+
+---@param callback fun(files: AIGitCommit.StagedFile[], err: string?)
+function M.get_head_files(callback)
+	run_git({ "diff-tree", "--no-commit-id", "--name-status", "-r", "--root", "HEAD" }, function(stdout, code, stderr)
+		if code ~= 0 then
+			callback({}, build_git_error(stdout, stderr, "Failed to get HEAD files"))
+			return
 		end
-		callback(files, nil)
+
+		callback(parse_name_status(stdout), nil)
 	end)
 end
 
