@@ -52,10 +52,11 @@ function M.build(opts)
 		template = opts.template or M.default_template
 	end
 
-	local staged_files_str = ""
+	local staged_files_parts = {}
 	for _, file in ipairs(opts.files or {}) do
-		staged_files_str = staged_files_str .. string.format("  %s  %s\n", file.status, file.file)
+		staged_files_parts[#staged_files_parts + 1] = string.format("  %s  %s", file.status, file.file)
 	end
+	local staged_files_str = #staged_files_parts > 0 and (table.concat(staged_files_parts, "\n") .. "\n") or ""
 
 	local extra = ""
 	if opts.extra_context and opts.extra_context ~= "" then

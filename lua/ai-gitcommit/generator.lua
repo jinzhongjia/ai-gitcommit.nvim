@@ -146,6 +146,11 @@ function M.generate(extra_context)
 
 	local languages = config.get().languages
 
+	if #languages == 0 then
+		vim.notify("No languages configured. Add languages to your config.", vim.log.levels.WARN)
+		return
+	end
+
 	if #languages == 1 then
 		M.run(languages[1], extra_context)
 		return

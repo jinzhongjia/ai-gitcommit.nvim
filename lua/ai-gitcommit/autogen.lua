@@ -43,6 +43,10 @@ function M.setup(auto_cfg)
 
 				local languages = config.get().languages
 
+				if #languages == 0 then
+					return
+				end
+
 				if #languages == 1 then
 					generator.run(languages[1], nil, bufnr, false)
 					return
