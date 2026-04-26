@@ -387,6 +387,7 @@ T["parse_models_response"]["keeps only picker-enabled chat models"] = function()
 	local body = vim.json.encode({
 		data = {
 			{ id = "gpt-4o", model_picker_enabled = true, capabilities = { type = "chat" } },
+			{ id = "missing-caps", model_picker_enabled = true },
 			{ id = "text-embed", model_picker_enabled = true, capabilities = { type = "embeddings" } },
 			{ id = "hidden", model_picker_enabled = false, capabilities = { type = "chat" } },
 			{

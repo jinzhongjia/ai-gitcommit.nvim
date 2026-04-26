@@ -60,6 +60,29 @@ function M.get_existing_message(bufnr)
 	return table.concat(lines, "\n")
 end
 
+---@param bufnr? number
+---@return boolean
+function M.is_amend_message_buffer(bufnr)
+	bufnr = bufnr or 0
+
+	local name = vim.api.nvim_buf_get_name(bufnr)
+	if vim.fs.basename(name) ~= "COMMIT_EDITMSG" then
+		return false
+	end
+
+	local prefix = get_comment_prefix(bufnr)
+	for _, line in ipairs(vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)) do
+		if prefix ~= "" and line:sub(1, #prefix) == prefix then
+			local content = vim.trim(line:sub(#prefix + 1))
+			if content:match("^Date:") then
+				return true
+			end
+		end
+	end
+
+	return false
+end
+
 ---@param message string
 ---@param bufnr? number
 function M.set_commit_message(message, bufnr)

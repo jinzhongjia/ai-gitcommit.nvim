@@ -44,7 +44,7 @@ local function get_diff_context(bufnr, callback)
 				return
 			end
 
-			if buffer.get_existing_message(bufnr) == "" then
+			if buffer.get_existing_message(bufnr) == "" or not buffer.is_amend_message_buffer(bufnr) then
 				callback(diff, files, nil, nil)
 				return
 			end

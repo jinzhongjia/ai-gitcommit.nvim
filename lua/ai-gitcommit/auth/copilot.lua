@@ -326,7 +326,7 @@ local function parse_models_response(body)
 	local entries = {}
 	for idx, model in ipairs(data.data) do
 		if type(model) == "table" and model.model_picker_enabled then
-			local is_chat = true
+			local is_chat = false
 			local caps = model.capabilities
 			if type(caps) == "table" then
 				local ctype = caps.type

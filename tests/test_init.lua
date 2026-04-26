@@ -46,6 +46,9 @@ local function run_generate_with_mocks(overrides)
 		get_existing_message = function(_)
 			return overrides.existing_message or ""
 		end,
+		is_amend_message_buffer = function(_)
+			return overrides.is_amend_message_buffer == true
+		end,
 	}
 
 	package.loaded["ai-gitcommit.config"] = {
@@ -203,12 +206,24 @@ T["generate"]["falls back to HEAD diff when amending without staged changes"] = 
 	local notifications = run_generate_with_mocks({
 		diff = "",
 		existing_message = "feat: previous subject",
+		is_amend_message_buffer = true,
 		chunk = "feat: rewrite commit message",
 	})
 
 	MiniTest.expect.equality(#notifications > 0, true)
 	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
 	MiniTest.expect.equality(notifications[2].msg, "Commit message generated!")
+end
+
+T["generate"]["does not fall back to HEAD diff outside amend flow"] = function()
+	local notifications = run_generate_with_mocks({
+		diff = "",
+		existing_message = "feat: previous subject",
+	})
+
+	MiniTest.expect.equality(#notifications > 0, true)
+	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
+	MiniTest.expect.equality(notifications[2].msg, "No staged changes found")
 end
 
 return T
