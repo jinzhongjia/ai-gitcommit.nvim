@@ -17,14 +17,14 @@ Supported providers:
 ```lua
 -- lazy.nvim (Copilot — default, no config needed if copilot.vim/copilot.lua is installed)
 {
-  "your-username/ai-gitcommit.nvim",
+  "jinzhongjia/ai-gitcommit.nvim",
   event = "FileType gitcommit",
   opts = {},
 }
 
 -- lazy.nvim (OpenAI)
 {
-  "your-username/ai-gitcommit.nvim",
+  "jinzhongjia/ai-gitcommit.nvim",
   event = "FileType gitcommit",
   opts = {
     provider = "openai",
