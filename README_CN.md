@@ -17,14 +17,14 @@ AI 驱动的 Neovim git commit 信息生成器。
 ```lua
 -- lazy.nvim（Copilot —— 默认，已安装 copilot.vim/copilot.lua 即无需任何配置）
 {
-  "your-username/ai-gitcommit.nvim",
+  "jinzhongjia/ai-gitcommit.nvim",
   event = "FileType gitcommit",
   opts = {},
 }
 
 -- lazy.nvim (OpenAI)
 {
-  "your-username/ai-gitcommit.nvim",
+  "jinzhongjia/ai-gitcommit.nvim",
   event = "FileType gitcommit",
   opts = {
     provider = "openai",
