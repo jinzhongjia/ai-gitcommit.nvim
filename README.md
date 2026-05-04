@@ -191,6 +191,7 @@ Output only the commit message, no explanation.
 - `filter.exclude_patterns` — remove files by filename pattern
 - `filter.exclude_paths` — remove files by path pattern
 - `filter.include_only` — when non-empty, keep only matching files
+- The same filters apply to both diff context and the `Staged files` list in the prompt
 - Context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
 - Default excludes cover common lockfiles, sourcemaps/minified assets, and generated protobuf / GORM gen / Connect RPC outputs
 
@@ -200,7 +201,7 @@ Output only the commit message, no explanation.
 - Generation uses staged changes by default
 - In `git commit --amend` buffers with an existing message and no staged changes, generation falls back to the current `HEAD` commit diff
 - When multiple `languages` are configured, a language picker is shown
-- When `auto.enabled = true`, generation starts automatically on `FileType gitcommit` after `debounce_ms`, but only if provider credentials are already available
+- When `auto.enabled = true`, generation starts automatically on `FileType gitcommit` after `debounce_ms`, but only if provider credentials are already available and the commit message area is still untouched
 
 ## License
 

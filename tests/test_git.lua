@@ -1,3 +1,4 @@
+local helpers = require("tests.helpers")
 local new_set = MiniTest.new_set
 
 local T = new_set()
@@ -46,6 +47,40 @@ T["get_repo_root"]["returns repo root path"] = function()
 	MiniTest.expect.equality(root ~= nil, true)
 	MiniTest.expect.equality(type(root), "string")
 	MiniTest.expect.equality(root:find("ai%-gitcommit") ~= nil, true)
+end
+
+T["get_repo_root"]["uses target buffer directory as cwd"] = function()
+	local original_system = vim.system
+	local done = false
+	local seen_cwd = nil
+	local bufnr = helpers.create_gitcommit_buffer()
+	local repo_file = vim.fs.joinpath(vim.uv.cwd(), ".git", "COMMIT_EDITMSG")
+	vim.api.nvim_buf_set_name(bufnr, repo_file)
+
+	vim.system = function(_, opts, cb)
+		seen_cwd = opts.cwd
+		cb({ code = 0, stdout = vim.uv.cwd() .. "\n", stderr = "" })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _) end,
+		}
+	end
+
+	git.get_repo_root(bufnr, function(_)
+		done = true
+	end)
+
+	vim.wait(500, function()
+		return done
+	end)
+
+	vim.system = original_system
+	helpers.cleanup_buffer(bufnr)
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(seen_cwd, vim.fs.dirname(repo_file))
 end
 
 T["get_staged_diff"] = new_set()
@@ -139,6 +174,57 @@ T["get_staged_files"]["parses status correctly"] = function()
 			MiniTest.expect.equality(type(f.file), "string")
 		end
 	end
+end
+
+T["get_staged_files"]["parses rename and copy records from -z output"] = function()
+	local original_system = vim.system
+	local done = false
+	local files = nil
+
+	vim.system = function(_, _, cb)
+		cb({
+			code = 0,
+			stdout = table.concat({
+				"R100",
+				"old-name.lua",
+				"new-name.lua",
+				"C100",
+				"old-copy.lua",
+				"new-copy.lua",
+				"M",
+				"plain.lua",
+			}, "\0") .. "\0",
+			stderr = "",
+		})
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _) end,
+		}
+	end
+
+	git.get_staged_files(function(result)
+		files = result
+		done = true
+	end)
+
+	vim.wait(500, function()
+		return done
+	end)
+
+	vim.system = original_system
+
+	MiniTest.expect.equality(done, true)
+	MiniTest.expect.equality(files[1].status, "R100")
+	MiniTest.expect.equality(files[1].file, "old-name.lua -> new-name.lua")
+	MiniTest.expect.equality(files[1].old_file, "old-name.lua")
+	MiniTest.expect.equality(files[1].new_file, "new-name.lua")
+	MiniTest.expect.equality(files[2].status, "C100")
+	MiniTest.expect.equality(files[2].old_file, "old-copy.lua")
+	MiniTest.expect.equality(files[2].new_file, "new-copy.lua")
+	MiniTest.expect.equality(files[3].status, "M")
+	MiniTest.expect.equality(files[3].file, "plain.lua")
 end
 
 T["get_staged_files"]["returns error when git command fails"] = function()

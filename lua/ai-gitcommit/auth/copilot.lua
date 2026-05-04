@@ -292,11 +292,12 @@ end
 ---@param endpoint string
 ---@return string
 local function models_url_from_chat_endpoint(endpoint)
-	-- Derive the base from a chat completions endpoint like
-	-- https://api.githubcopilot.com/chat/completions -> https://api.githubcopilot.com/models
-	local base = endpoint:match("^(https?://[^/]+)")
-	if base then
-		return base .. "/models"
+	local prefix, suffix = endpoint:match("^(.-)([?#].*)$")
+	local base = prefix or endpoint
+	local extra = suffix or ""
+	local rewritten, replaced = base:gsub("/chat/completions/?$", "/models", 1)
+	if replaced > 0 then
+		return rewritten .. extra
 	end
 	return "https://api.githubcopilot.com/models"
 end

@@ -27,49 +27,98 @@ end
 ---@param bufnr integer
 ---@param callback fun(diff: string, files: AIGitCommit.StagedFile[], amend_note: string?, err: string?)
 local function get_diff_context(bufnr, callback)
-	git.get_staged_diff(function(diff, diff_err)
-		if diff_err then
-			callback("", {}, nil, diff_err)
+	local staged_diff
+	local staged_files
+	local staged_diff_err
+	local staged_files_err
+	local pending = 2
+
+	---@param done fun(diff: string, files: AIGitCommit.StagedFile[], amend_note: string?, err: string?)
+	local function fetch_head_context(done)
+		local head_diff
+		local head_files
+		local head_diff_err
+		local head_files_err
+		local head_pending = 2
+
+		local function finish_head()
+			if head_pending > 0 then
+				return
+			end
+
+			if head_diff_err then
+				done("", {}, nil, head_diff_err)
+				return
+			end
+
+			if head_files_err then
+				done("", {}, nil, head_files_err)
+				return
+			end
+
+			done(
+				head_diff,
+				head_files,
+				"This commit message is being amended without staged changes. Use the current HEAD commit diff below as the context to rewrite the message.",
+				nil
+			)
+		end
+
+		git.get_head_diff(bufnr, function(diff, err)
+			head_diff = diff
+			head_diff_err = err
+			head_pending = head_pending - 1
+			finish_head()
+		end)
+
+		git.get_head_files(bufnr, function(files, err)
+			head_files = files
+			head_files_err = err
+			head_pending = head_pending - 1
+			finish_head()
+		end)
+	end
+
+	local function finish_staged()
+		if pending > 0 then
 			return
 		end
 
-		git.get_staged_files(function(files, files_err)
-			if files_err then
-				callback("", {}, nil, files_err)
-				return
-			end
+		if staged_diff_err then
+			callback("", {}, nil, staged_diff_err)
+			return
+		end
 
-			if diff ~= "" then
-				callback(diff, files, nil, nil)
-				return
-			end
+		if staged_files_err then
+			callback("", {}, nil, staged_files_err)
+			return
+		end
 
-			if buffer.get_existing_message(bufnr) == "" or not buffer.is_amend_message_buffer(bufnr) then
-				callback(diff, files, nil, nil)
-				return
-			end
+		if staged_diff ~= "" then
+			callback(staged_diff, staged_files, nil, nil)
+			return
+		end
 
-			git.get_head_diff(function(head_diff, head_diff_err)
-				if head_diff_err then
-					callback("", {}, nil, head_diff_err)
-					return
-				end
+		if buffer.get_existing_message(bufnr) == "" or not buffer.is_amend_message_buffer(bufnr) then
+			callback(staged_diff, staged_files, nil, nil)
+			return
+		end
 
-				git.get_head_files(function(head_files, head_files_err)
-					if head_files_err then
-						callback("", {}, nil, head_files_err)
-						return
-					end
+		fetch_head_context(callback)
+	end
 
-					callback(
-						head_diff,
-						head_files,
-						"This commit message is being amended without staged changes. Use the current HEAD commit diff below as the context to rewrite the message.",
-						nil
-					)
-				end)
-			end)
-		end)
+	git.get_staged_diff(bufnr, function(diff, err)
+		staged_diff = diff
+		staged_diff_err = err
+		pending = pending - 1
+		finish_staged()
+	end)
+
+	git.get_staged_files(bufnr, function(files, err)
+		staged_files = files
+		staged_files_err = err
+		pending = pending - 1
+		finish_staged()
 	end)
 end
 
@@ -85,6 +134,9 @@ function M.run(language, extra_context, bufnr, silent)
 		return
 	end
 
+	buffer_state.stop_timer(bufnr)
+	buffer_state.cancel_stream(bufnr)
+
 	local provider_info, provider_err = config.get_provider()
 	if not provider_info then
 		if not silent then
@@ -94,14 +146,32 @@ function M.run(language, extra_context, bufnr, silent)
 	end
 
 	state.generating = true
+	local expected_changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
 
 	---@param msg string
 	---@param level? integer
 	local function fail(msg, level)
+		buffer_state.cancel_stream(bufnr)
 		state.generating = false
 		if not silent then
 			vim.notify(msg, level or vim.log.levels.ERROR)
 		end
+	end
+
+	---@return boolean
+	local function should_abort_for_buffer_changes()
+		if not vim.api.nvim_buf_is_valid(bufnr) then
+			return true
+		end
+
+		return vim.api.nvim_buf_get_changedtick(bufnr) ~= expected_changedtick
+	end
+
+	---@param message string
+	local function abort_due_to_buffer_changes(message)
+		buffer_state.cancel_stream(bufnr)
+		state.generating = false
+		return fail(message, vim.log.levels.WARN)
 	end
 
 	if not silent then
@@ -119,12 +189,13 @@ function M.run(language, extra_context, bufnr, silent)
 
 		local cfg = config.get()
 		local processed_diff = context.build_context(diff, cfg)
+		local filtered_files = context.filter_files(files, cfg)
 
 		local final_prompt = prompt.build({
 			template = cfg.prompt_template,
 			language = language,
 			extra_context = merge_extra_context(extra_context, amend_note),
-			files = files,
+			files = filtered_files,
 			diff = processed_diff,
 		})
 
@@ -152,14 +223,29 @@ function M.run(language, extra_context, bufnr, silent)
 				first_comment_line = first_comment,
 				interval_ms = 12,
 				chars_per_tick = 4,
+				on_update = function()
+					if vim.api.nvim_buf_is_valid(bufnr) then
+						expected_changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+					end
+				end,
 			})
 			local has_content = false
 
-			provider.generate(final_prompt, provider_config, function(chunk)
+			state.stream_handle = provider.generate(final_prompt, provider_config, function(chunk)
+				if should_abort_for_buffer_changes() then
+					tw:stop()
+					return abort_due_to_buffer_changes("Commit buffer changed during generation")
+				end
+
 				has_content = true
 				tw:push(chunk)
 			end, function()
 				tw:finish(function()
+					if should_abort_for_buffer_changes() then
+						return abort_due_to_buffer_changes("Commit buffer changed during generation")
+					end
+
+					state.stream_handle = nil
 					state.generating = false
 					if not has_content then
 						if not silent then
@@ -177,6 +263,13 @@ function M.run(language, extra_context, bufnr, silent)
 					end
 				end)
 			end, function(gen_err)
+				if state.stream_handle and state.stream_handle.canceled then
+					state.stream_handle = nil
+					state.generating = false
+					return
+				end
+
+				state.stream_handle = nil
 				tw:stop()
 				fail("Error: " .. gen_err)
 			end)

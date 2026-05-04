@@ -6,6 +6,9 @@ local generator = require("ai-gitcommit.generator")
 
 local M = {}
 
+local CLEANUP_GROUP = vim.api.nvim_create_augroup("AIGitCommitLifecycle", { clear = true })
+local active_keymap ---@type string?
+
 ---@param opts? AIGitCommit.Config
 function M.setup(opts)
 	config.setup(opts)
@@ -13,15 +16,23 @@ function M.setup(opts)
 
 	local cfg = config.get()
 
+	if active_keymap then
+		pcall(vim.keymap.del, "n", active_keymap)
+		active_keymap = nil
+	end
+
 	if cfg.keymap then
+		active_keymap = cfg.keymap
 		vim.keymap.set("n", cfg.keymap, function()
 			M.generate()
 		end, { desc = "AI Generate Commit Message" })
 	end
 
 	autogen.setup(cfg.auto)
+	vim.api.nvim_clear_autocmds({ group = CLEANUP_GROUP })
 
-	vim.api.nvim_create_autocmd("BufDelete", {
+	vim.api.nvim_create_autocmd({ "BufDelete", "BufUnload" }, {
+		group = CLEANUP_GROUP,
 		callback = function(args)
 			buffer_state.clear(args.buf)
 		end,

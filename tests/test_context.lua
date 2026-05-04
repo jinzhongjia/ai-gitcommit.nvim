@@ -88,6 +88,29 @@ diff --git a/tests/a.lua b/tests/a.lua
 	MiniTest.expect.equality(filtered:find("tests/a.lua", 1, true), nil)
 end
 
+T["filter_files"] = new_set()
+
+T["filter_files"]["keeps rename when old or new path matches"] = function()
+	local files = {
+		{ status = "R100", file = "old/path.lua -> new/path.lua", old_file = "old/path.lua", new_file = "new/path.lua" },
+		{ status = "R100", file = "old/skip.lua -> new/skip.lua", old_file = "old/skip.lua", new_file = "new/skip.lua" },
+	}
+	local cfg = {
+		filter = {
+			exclude_patterns = {},
+			exclude_paths = { "^old/skip" },
+			include_only = { "^new/", "^old/path" },
+		},
+	}
+
+	local filtered = context.filter_files(files, cfg)
+	MiniTest.expect.equality(#filtered, 2)
+	MiniTest.expect.equality(filtered[1].old_file, "old/path.lua")
+	MiniTest.expect.equality(filtered[1].new_file, "new/path.lua")
+	MiniTest.expect.equality(filtered[2].old_file, "old/skip.lua")
+	MiniTest.expect.equality(filtered[2].new_file, "new/skip.lua")
+end
+
 T["truncate_diff"] = new_set()
 
 T["truncate_diff"]["returns original if under limit"] = function()

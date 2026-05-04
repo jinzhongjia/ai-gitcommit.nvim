@@ -20,6 +20,7 @@ end
 ---@field private chars_per_tick number
 ---@field private running boolean
 ---@field private done_callback? fun()
+---@field private on_update? fun()
 
 ---@param byte number
 ---@return number
@@ -40,6 +41,7 @@ end
 ---@field first_comment_line number
 ---@field interval_ms? number
 ---@field chars_per_tick? number
+---@field on_update? fun()
 
 ---@param opts AIGitCommit.TypewriterOpts
 ---@return AIGitCommit.Typewriter
@@ -56,6 +58,7 @@ function M.new(opts)
 		chars_per_tick = opts.chars_per_tick or 4,
 		running = false,
 		done_callback = nil,
+		on_update = opts.on_update,
 	}
 
 	return setmetatable(self, { __index = M })
@@ -168,6 +171,9 @@ function M:_update_buffer()
 	local delete_to = math.max(self.written_lines, self.first_comment_line - 1)
 	vim.api.nvim_buf_set_lines(self.bufnr, 0, delete_to, false, self.displayed)
 	self.written_lines = #self.displayed
+	if self.on_update then
+		self.on_update()
+	end
 
 	if needs_trailing then
 		table.remove(self.displayed)

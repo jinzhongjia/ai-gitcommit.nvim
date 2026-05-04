@@ -8,6 +8,7 @@ local M = {}
 
 ---@class AIGitCommit.StreamHandle
 ---@field system_obj vim.SystemObj
+---@field canceled boolean
 
 ---@param opts AIGitCommit.StreamRequest
 ---@param on_chunk fun(chunk: table)
@@ -37,6 +38,8 @@ function M.request(opts, on_chunk, on_done, on_error)
 	local parsed_chunk_count = 0
 	local decode_error_count = 0
 	local sse_data_lines = {}
+	---@type AIGitCommit.StreamHandle
+	local handle
 
 	---@param chunk table
 	local function handle_chunk(chunk)
@@ -124,6 +127,10 @@ function M.request(opts, on_chunk, on_done, on_error)
 		stderr = process_stderr,
 	}, function(obj)
 		vim.schedule(function()
+			if handle.canceled then
+				return
+			end
+
 			if #sse_data_lines > 0 then
 				flush_sse_event()
 			end
@@ -155,12 +162,14 @@ function M.request(opts, on_chunk, on_done, on_error)
 		end)
 	end)
 
-	return { system_obj = system_obj }
+	handle = { system_obj = system_obj, canceled = false }
+	return handle
 end
 
 ---@param stream_handle AIGitCommit.StreamHandle?
 function M.cancel(stream_handle)
 	if stream_handle and stream_handle.system_obj then
+		stream_handle.canceled = true
 		if not stream_handle.system_obj:is_closing() then
 			stream_handle.system_obj:kill("sigterm")
 		end

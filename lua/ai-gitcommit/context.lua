@@ -1,5 +1,36 @@
 local M = {}
 
+---@param file AIGitCommit.StagedFile
+---@return string[]
+local function file_candidates(file)
+	local candidates = {}
+
+	if type(file.file) == "string" and file.file ~= "" then
+		candidates[#candidates + 1] = file.file
+	end
+
+	if type(file.old_file) == "string" and file.old_file ~= "" then
+		candidates[#candidates + 1] = file.old_file
+	end
+
+	if type(file.new_file) == "string" and file.new_file ~= "" then
+		candidates[#candidates + 1] = file.new_file
+	end
+
+	return candidates
+end
+
+---@param old_file string
+---@param new_file string
+---@return string
+local function diff_file_display(old_file, new_file)
+	if old_file == new_file then
+		return old_file
+	end
+
+	return string.format("%s -> %s", old_file, new_file)
+end
+
 ---@param filename string
 ---@param rules string[]
 ---@return boolean
@@ -44,6 +75,35 @@ local function should_keep_file(filename, config)
 	return true
 end
 
+---@param file AIGitCommit.StagedFile
+---@param config AIGitCommit.Config
+---@return boolean
+local function should_keep_staged_file(file, config)
+	for _, candidate in ipairs(file_candidates(file)) do
+		if should_keep_file(candidate, config) then
+			return true
+		end
+	end
+
+	return false
+end
+
+---@param files AIGitCommit.StagedFile[]
+---@param config AIGitCommit.Config
+---@return AIGitCommit.StagedFile[]
+function M.filter_files(files, config)
+	---@type AIGitCommit.StagedFile[]
+	local filtered = {}
+
+	for _, file in ipairs(files or {}) do
+		if should_keep_staged_file(file, config) then
+			filtered[#filtered + 1] = file
+		end
+	end
+
+	return filtered
+end
+
 ---@param diff string
 ---@param config AIGitCommit.Config
 ---@return string
@@ -53,9 +113,13 @@ function M.filter_diff(diff, config)
 	local skip_file = false
 
 	for _, line in ipairs(lines) do
-		local file = line:match("^diff %-%-git a/(.-) b/")
-		if file then
-			skip_file = not should_keep_file(file, config)
+		local old_file, new_file = line:match("^diff %-%-git a/(.-) b/(.-)$")
+		if old_file and new_file then
+			skip_file = not (
+				should_keep_file(old_file, config)
+				or should_keep_file(new_file, config)
+				or should_keep_file(diff_file_display(old_file, new_file), config)
+			)
 		end
 
 		if not skip_file then

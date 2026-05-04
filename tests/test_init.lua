@@ -86,17 +86,17 @@ local function run_generate_with_mocks(overrides)
 	}
 
 	package.loaded["ai-gitcommit.git"] = {
-		get_staged_diff = function(callback)
+		get_staged_diff = function(_, callback)
 			local diff = overrides.diff or "diff --git a/a.lua b/a.lua"
 			callback(diff, overrides.diff_err)
 		end,
-		get_staged_files = function(callback)
+		get_staged_files = function(_, callback)
 			callback(overrides.files or { { status = "M", file = "a.lua" } }, overrides.files_err)
 		end,
-		get_head_diff = function(callback)
+		get_head_diff = function(_, callback)
 			callback(overrides.head_diff or "diff --git a/head.lua b/head.lua", overrides.head_diff_err)
 		end,
-		get_head_files = function(callback)
+		get_head_files = function(_, callback)
 			callback(overrides.head_files or { { status = "M", file = "head.lua" } }, overrides.head_files_err)
 		end,
 	}
@@ -110,6 +110,9 @@ local function run_generate_with_mocks(overrides)
 	package.loaded["ai-gitcommit.context"] = {
 		build_context = function(diff, _)
 			return diff
+		end,
+		filter_files = function(files, _)
+			return files
 		end,
 	}
 
@@ -224,6 +227,19 @@ T["generate"]["does not fall back to HEAD diff outside amend flow"] = function()
 	MiniTest.expect.equality(#notifications > 0, true)
 	MiniTest.expect.equality(notifications[1].msg, "Generating commit message...")
 	MiniTest.expect.equality(notifications[2].msg, "No staged changes found")
+end
+
+T["setup"] = new_set()
+
+T["setup"]["can be called twice without error"] = function()
+	helpers.reset_config()
+	local ai = require("ai-gitcommit")
+
+	local ok1 = pcall(ai.setup, helpers.get_test_config())
+	local ok2 = pcall(ai.setup, helpers.get_test_config())
+
+	MiniTest.expect.equality(ok1, true)
+	MiniTest.expect.equality(ok2, true)
 end
 
 return T

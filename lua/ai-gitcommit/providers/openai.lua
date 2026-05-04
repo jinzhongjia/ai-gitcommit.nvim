@@ -39,8 +39,9 @@ end
 ---@param on_chunk fun(content: string)
 ---@param on_done fun()
 ---@param on_error fun(err: string)
+---@return AIGitCommit.StreamHandle?
 function M.generate(prompt, config, on_chunk, on_done, on_error)
-	openai_compat.generate(prompt, config, {
+	return openai_compat.generate(prompt, config, {
 		build_headers = build_headers,
 		default_stream_options = true,
 	}, on_chunk, on_done, on_error)

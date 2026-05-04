@@ -121,6 +121,7 @@ Diff context behavior:
   - Files matching `exclude_patterns` are removed.
   - Files matching `exclude_paths` are removed.
   - If `include_only` is non-empty, only matching files are included.
+  - The same filters apply to the `Staged files` list in the prompt.
   - Context is truncated by `context.max_diff_lines`, then by
     `context.max_diff_chars`.
   - Default excludes cover common lockfiles, sourcemaps/minified assets, and
@@ -134,7 +135,7 @@ Generation behavior:
   - When multiple `languages` are configured, a language picker is shown.
   - When `auto.enabled = true`, generation starts automatically on
     `FileType gitcommit` after `debounce_ms`, but only if provider
-    credentials are already available.
+    credentials are already available and the message area is still untouched.
 
 Provider config validation:
   - providers.openai.model must be non-empty string

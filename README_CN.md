@@ -190,6 +190,7 @@ Diff:
 - `filter.exclude_patterns` — 按文件名模式排除文件
 - `filter.exclude_paths` — 按路径模式排除文件
 - `filter.include_only` — 非空时仅保留匹配的文件
+- 同一套过滤规则也会同时作用于 prompt 里的 `Staged files` 列表
 - 上下文先按 `context.max_diff_lines` 截断，再按 `context.max_diff_chars` 截断
 - 默认排除规则覆盖常见 lockfile、sourcemap / minified 产物，以及 protobuf / GORM gen / Connect RPC 生成文件
 
@@ -199,7 +200,7 @@ Diff:
 - 默认基于已暂存的改动生成
 - 在 `git commit --amend` 场景下，如果当前 buffer 已有旧 message 且没有新的 staged changes，会回退到当前 `HEAD` commit 的 diff 作为生成上下文
 - 当配置了多个 `languages` 时，会弹出语言选择器
-- 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用
+- 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用，且 commit message 区域仍未被手动修改
 
 ## License
 

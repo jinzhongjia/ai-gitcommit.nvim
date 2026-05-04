@@ -493,7 +493,12 @@ end
 
 T["models_url_from_chat_endpoint"]["works with a different host"] = function()
 	local url = copilot._testing.models_url_from_chat_endpoint("https://proxy.example.com/v1/chat/completions")
-	MiniTest.expect.equality(url, "https://proxy.example.com/models")
+	MiniTest.expect.equality(url, "https://proxy.example.com/v1/models")
+end
+
+T["models_url_from_chat_endpoint"]["preserves query strings"] = function()
+	local url = copilot._testing.models_url_from_chat_endpoint("https://proxy.example.com/v1/chat/completions?api-version=1")
+	MiniTest.expect.equality(url, "https://proxy.example.com/v1/models?api-version=1")
 end
 
 -- ============================================================

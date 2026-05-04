@@ -23,6 +23,7 @@ end
 ---@param on_chunk fun(content: string)
 ---@param on_done fun()
 ---@param on_error fun(err: string)
+---@return AIGitCommit.StreamHandle?
 function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 	local body = {
 		model = config.model,
@@ -53,7 +54,7 @@ function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 		end
 	end
 
-	stream.request({
+	return stream.request({
 		url = config.endpoint,
 		method = "POST",
 		headers = headers,
