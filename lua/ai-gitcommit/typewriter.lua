@@ -1,5 +1,11 @@
 local M = {}
 
+---@param bufnr integer
+---@return boolean
+local function is_buffer_valid(bufnr)
+	return vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr)
+end
+
 ---@param timer userdata
 local function cancel_timer(timer)
 	pcall(function()
@@ -20,6 +26,7 @@ end
 ---@field private chars_per_tick number
 ---@field private running boolean
 ---@field private done_callback? fun()
+---@field private before_update? fun(): boolean
 ---@field private on_update? fun()
 
 ---@param byte number
@@ -41,6 +48,7 @@ end
 ---@field first_comment_line number
 ---@field interval_ms? number
 ---@field chars_per_tick? number
+---@field before_update? fun(): boolean
 ---@field on_update? fun()
 
 ---@param opts AIGitCommit.TypewriterOpts
@@ -58,6 +66,7 @@ function M.new(opts)
 		chars_per_tick = opts.chars_per_tick or 4,
 		running = false,
 		done_callback = nil,
+		before_update = opts.before_update,
 		on_update = opts.on_update,
 	}
 
@@ -65,6 +74,7 @@ function M.new(opts)
 end
 
 ---@param text string
+---@return nil
 function M:push(text)
 	if #text > 0 then
 		table.insert(self.queue, text)
@@ -73,6 +83,7 @@ function M:push(text)
 	end
 end
 
+---@return nil
 function M:_ensure_running()
 	if self.running then
 		return
@@ -81,6 +92,7 @@ function M:_ensure_running()
 	self:_schedule_tick()
 end
 
+---@return nil
 function M:_schedule_tick()
 	if not self.running then
 		return
@@ -90,8 +102,9 @@ function M:_schedule_tick()
 	end, self.interval_ms)
 end
 
+---@return nil
 function M:_tick()
-	if not self.running or not vim.api.nvim_buf_is_valid(self.bufnr) then
+	if not self.running or not is_buffer_valid(self.bufnr) then
 		self.running = false
 		return
 	end
@@ -127,7 +140,10 @@ function M:_tick()
 	end
 
 	if new_chars_count > 0 then
-		self:_append_chars(new_chars, new_chars_count)
+		if not self:_append_chars(new_chars, new_chars_count) then
+			self.running = false
+			return
+		end
 	end
 
 	if self.queue_len > 0 then
@@ -144,7 +160,12 @@ end
 
 ---@param chars string[]
 ---@param count number
+---@return boolean
 function M:_append_chars(chars, count)
+	if self.before_update and not self.before_update() then
+		return false
+	end
+
 	for i = 1, count do
 		local char = chars[i]
 		if char == "\n" then
@@ -156,10 +177,12 @@ function M:_append_chars(chars, count)
 	end
 
 	self:_update_buffer()
+	return true
 end
 
+---@return nil
 function M:_update_buffer()
-	if not vim.api.nvim_buf_is_valid(self.bufnr) then
+	if not is_buffer_valid(self.bufnr) then
 		return
 	end
 
@@ -180,7 +203,13 @@ function M:_update_buffer()
 	end
 end
 
+---@return nil
 function M:flush()
+	if self.before_update and not self.before_update() then
+		self.running = false
+		return
+	end
+
 	self.running = false
 	if self.timer then
 		cancel_timer(self.timer)
@@ -208,6 +237,7 @@ function M:flush()
 	self:_update_buffer()
 end
 
+---@return nil
 function M:stop()
 	self.running = false
 	if self.timer then
@@ -222,6 +252,7 @@ function M:stop()
 end
 
 ---@param callback fun()
+---@return nil
 function M:finish(callback)
 	if self.queue_len == 0 and not self.running then
 		callback()

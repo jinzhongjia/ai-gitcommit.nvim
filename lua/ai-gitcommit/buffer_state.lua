@@ -44,6 +44,7 @@ function M.get(bufnr)
 end
 
 ---@param bufnr integer
+---@return nil
 function M.stop_timer(bufnr)
 	local s = states[bufnr]
 	if not s then
@@ -55,6 +56,7 @@ function M.stop_timer(bufnr)
 end
 
 ---@param bufnr integer
+---@return nil
 function M.cancel_stream(bufnr)
 	local s = states[bufnr]
 	if not s then
@@ -66,6 +68,7 @@ function M.cancel_stream(bufnr)
 	s.generating = false
 end
 
+---@return nil
 function M.stop_all_timers()
 	for bufnr, _ in pairs(states) do
 		M.stop_timer(bufnr)
@@ -73,6 +76,7 @@ function M.stop_all_timers()
 end
 
 ---@param bufnr integer
+---@return nil
 function M.clear(bufnr)
 	M.stop_timer(bufnr)
 	M.cancel_stream(bufnr)

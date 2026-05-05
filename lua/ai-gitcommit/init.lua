@@ -10,6 +10,7 @@ local CLEANUP_GROUP = vim.api.nvim_create_augroup("AIGitCommitLifecycle", { clea
 local active_keymap ---@type string?
 
 ---@param opts? AIGitCommit.Config
+---@return nil
 function M.setup(opts)
 	config.setup(opts)
 	commands.setup()
@@ -40,6 +41,7 @@ function M.setup(opts)
 end
 
 ---@param extra_context? string
+---@return nil
 function M.generate(extra_context)
 	generator.generate(extra_context)
 end

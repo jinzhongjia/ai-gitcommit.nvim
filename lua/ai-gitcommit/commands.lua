@@ -35,6 +35,7 @@ local function parse_subcommand(args)
 end
 
 ---@param provider string?
+---@return nil
 local function do_logout(provider)
 	if not provider then
 		vim.notify("Usage: :AICommit logout <provider>", vim.log.levels.ERROR)
@@ -56,6 +57,7 @@ local function do_logout(provider)
 end
 
 ---@param provider string?
+---@return nil
 local function do_status(provider)
 	if provider then
 		if not config.is_supported_provider(provider) then
@@ -108,6 +110,7 @@ local function complete(_, line)
 	return {}
 end
 
+---@return nil
 function M.setup()
 	pcall(vim.api.nvim_del_user_command, "AICommit")
 

@@ -8,6 +8,13 @@ local providers = require("ai-gitcommit.providers")
 local typewriter = require("ai-gitcommit.typewriter")
 
 local M = {}
+local BUFFER_INVALID_ERR = "__AI_GITCOMMIT_BUFFER_INVALID__"
+
+---@param bufnr integer
+---@return boolean
+local function is_buffer_valid(bufnr)
+	return vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_buf_is_loaded(bufnr)
+end
 
 ---@param existing_context? string
 ---@param amend_note? string
@@ -43,6 +50,11 @@ local function get_diff_context(bufnr, callback)
 
 		local function finish_head()
 			if head_pending > 0 then
+				return
+			end
+
+			if not is_buffer_valid(bufnr) then
+				done("", {}, nil, BUFFER_INVALID_ERR)
 				return
 			end
 
@@ -84,6 +96,11 @@ local function get_diff_context(bufnr, callback)
 
 	local function finish_staged()
 		if pending > 0 then
+			return
+		end
+
+		if not is_buffer_valid(bufnr) then
+			callback("", {}, nil, BUFFER_INVALID_ERR)
 			return
 		end
 
@@ -129,8 +146,12 @@ end
 ---@param extra_context? string
 ---@param bufnr? integer
 ---@param silent? boolean
+---@return nil
 function M.run(language, extra_context, bufnr, silent)
 	bufnr = bufnr or vim.api.nvim_get_current_buf()
+	if not is_buffer_valid(bufnr) then
+		return
+	end
 
 	local state = buffer_state.get(bufnr)
 	if state.generating then
@@ -139,6 +160,44 @@ function M.run(language, extra_context, bufnr, silent)
 
 	buffer_state.stop_timer(bufnr)
 	buffer_state.cancel_stream(bufnr)
+
+	---@type AIGitCommit.StreamHandle?
+	local stream_handle
+	---@type AIGitCommit.Typewriter?
+	local tw
+
+	---@return nil
+	local function detach_stream_handle()
+		if state.stream_handle == stream_handle then
+			state.stream_handle = nil
+		end
+	end
+
+	---@return nil
+	local function finish_generation()
+		detach_stream_handle()
+		state.generating = false
+	end
+
+	---@return nil
+	local function cancel_active_stream()
+		if stream_handle and not stream_handle.canceled then
+			buffer_state.cancel_stream(bufnr)
+		else
+			detach_stream_handle()
+			state.generating = false
+		end
+	end
+
+	---@return boolean
+	local function abort_if_buffer_invalid()
+		if is_buffer_valid(bufnr) then
+			return false
+		end
+
+		cancel_active_stream()
+		return true
+	end
 
 	local provider_info, provider_err = config.get_provider()
 	if not provider_info then
@@ -153,9 +212,9 @@ function M.run(language, extra_context, bufnr, silent)
 
 	---@param msg string
 	---@param level? integer
+	---@return nil
 	local function fail(msg, level)
-		buffer_state.cancel_stream(bufnr)
-		state.generating = false
+		cancel_active_stream()
 		if not silent then
 			vim.notify(msg, level or vim.log.levels.ERROR)
 		end
@@ -163,7 +222,7 @@ function M.run(language, extra_context, bufnr, silent)
 
 	---@return boolean
 	local function should_abort_for_buffer_changes()
-		if not vim.api.nvim_buf_is_valid(bufnr) then
+		if not is_buffer_valid(bufnr) then
 			return true
 		end
 
@@ -171,9 +230,11 @@ function M.run(language, extra_context, bufnr, silent)
 	end
 
 	---@param message string
+	---@return nil
 	local function abort_due_to_buffer_changes(message)
-		buffer_state.cancel_stream(bufnr)
-		state.generating = false
+		if tw then
+			tw:stop()
+		end
 		return fail(message, vim.log.levels.WARN)
 	end
 
@@ -182,6 +243,10 @@ function M.run(language, extra_context, bufnr, silent)
 	end
 
 	get_diff_context(bufnr, function(diff, files, amend_note, diff_err)
+		if diff_err == BUFFER_INVALID_ERR or abort_if_buffer_invalid() then
+			return
+		end
+
 		if diff_err then
 			return fail("Error: " .. diff_err)
 		end
@@ -205,6 +270,10 @@ function M.run(language, extra_context, bufnr, silent)
 		local provider = providers.get(provider_info.name)
 
 		provider.resolve_credentials(provider_info.config, function(creds, creds_err)
+			if abort_if_buffer_invalid() then
+				return
+			end
+
 			if creds_err then
 				return fail(creds_err)
 			end
@@ -220,36 +289,68 @@ function M.run(language, extra_context, bufnr, silent)
 				provider_config.model = creds.model
 			end
 
+			if abort_if_buffer_invalid() then
+				return
+			end
+
 			local first_comment = buffer.find_first_comment_line(bufnr)
-			local tw = typewriter.new({
+			tw = typewriter.new({
 				bufnr = bufnr,
 				first_comment_line = first_comment,
 				interval_ms = 12,
 				chars_per_tick = 4,
+				before_update = function()
+					if should_abort_for_buffer_changes() then
+						abort_due_to_buffer_changes("Commit buffer changed during generation")
+						return false
+					end
+
+					return true
+				end,
 				on_update = function()
-					if vim.api.nvim_buf_is_valid(bufnr) then
+					if is_buffer_valid(bufnr) then
 						expected_changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
 					end
 				end,
 			})
 			local has_content = false
 
-			state.stream_handle = provider.generate(final_prompt, provider_config, function(chunk)
+			stream_handle = provider.generate(final_prompt, provider_config, function(chunk)
+				if stream_handle and stream_handle.canceled then
+					return
+				end
+
 				if should_abort_for_buffer_changes() then
-					tw:stop()
 					return abort_due_to_buffer_changes("Commit buffer changed during generation")
 				end
 
 				has_content = true
 				tw:push(chunk)
 			end, function()
+				if stream_handle and stream_handle.canceled then
+					finish_generation()
+					stream_handle = nil
+					return
+				end
+
 				tw:finish(function()
+					if stream_handle and stream_handle.canceled then
+						finish_generation()
+						stream_handle = nil
+						return
+					end
+
+					if abort_if_buffer_invalid() then
+						stream_handle = nil
+						return
+					end
+
 					if should_abort_for_buffer_changes() then
 						return abort_due_to_buffer_changes("Commit buffer changed during generation")
 					end
 
-					state.stream_handle = nil
-					state.generating = false
+					finish_generation()
+					stream_handle = nil
 					if not has_content then
 						if not silent then
 							vim.notify("No message content received from provider", vim.log.levels.WARN)
@@ -257,7 +358,7 @@ function M.run(language, extra_context, bufnr, silent)
 						return
 					end
 
-					if vim.api.nvim_buf_is_valid(bufnr) then
+					if is_buffer_valid(bufnr) then
 						state.generated = true
 					end
 
@@ -266,21 +367,25 @@ function M.run(language, extra_context, bufnr, silent)
 					end
 				end)
 			end, function(gen_err)
-				if state.stream_handle and state.stream_handle.canceled then
-					state.stream_handle = nil
-					state.generating = false
+				if stream_handle and stream_handle.canceled then
+					finish_generation()
+					stream_handle = nil
 					return
 				end
 
-				state.stream_handle = nil
-				tw:stop()
+				if tw then
+					tw:stop()
+				end
 				fail("Error: " .. gen_err)
+				stream_handle = nil
 			end)
+			state.stream_handle = stream_handle
 		end)
 	end)
 end
 
 ---@param extra_context? string
+---@return nil
 function M.generate(extra_context)
 	if not buffer.is_gitcommit_buffer() then
 		vim.notify("Not in a gitcommit buffer", vim.log.levels.WARN)
@@ -299,6 +404,7 @@ function M.generate(extra_context)
 	end
 
 	local languages = config.get().languages
+	local bufnr = vim.api.nvim_get_current_buf()
 
 	if #languages == 0 then
 		vim.notify("No languages configured. Add languages to your config.", vim.log.levels.WARN)
@@ -306,7 +412,7 @@ function M.generate(extra_context)
 	end
 
 	if #languages == 1 then
-		M.run(languages[1], extra_context)
+		M.run(languages[1], extra_context, bufnr)
 		return
 	end
 
@@ -314,7 +420,7 @@ function M.generate(extra_context)
 		if not choice then
 			return
 		end
-		M.run(choice, extra_context)
+		M.run(choice, extra_context, bufnr)
 	end)
 end
 

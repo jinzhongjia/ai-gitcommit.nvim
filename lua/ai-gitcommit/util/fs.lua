@@ -12,11 +12,13 @@ end
 
 ---@param path string
 ---@param content string
+---@return nil
 function M.write_file(path, content)
 	vim.fn.writefile({ content }, path)
 end
 
 ---@param path string
+---@return nil
 function M.ensure_dir(path)
 	vim.fn.mkdir(path, "p")
 end

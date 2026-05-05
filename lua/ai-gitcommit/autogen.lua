@@ -8,12 +8,14 @@ local AUTOGEN_GROUP = vim.api.nvim_create_augroup("AIGitCommitAutogen", { clear 
 
 ---@param language string
 ---@param bufnr integer
+---@return nil
 local function run_generator(language, bufnr)
 	require("ai-gitcommit.generator").run(language, nil, bufnr, false)
 end
 
 ---@param bufnr integer
 ---@param debounce_ms integer
+---@return nil
 local function schedule_autogen(bufnr, debounce_ms)
 	local state = buffer_state.get(bufnr)
 
@@ -56,6 +58,7 @@ local function schedule_autogen(bufnr, debounce_ms)
 end
 
 ---@param auto_cfg AIGitCommit.AutoConfig
+---@return nil
 function M.setup(auto_cfg)
 	buffer_state.stop_all_timers()
 	vim.api.nvim_clear_autocmds({ group = AUTOGEN_GROUP })
