@@ -73,15 +73,6 @@ function M.setup(auto_cfg)
 			schedule_autogen(args.buf, debounce_ms)
 		end,
 	})
-
-	local current_buf = vim.api.nvim_get_current_buf()
-	if vim.api.nvim_get_option_value("filetype", { buf = current_buf }) == "gitcommit" then
-		vim.schedule(function()
-			if vim.api.nvim_buf_is_valid(current_buf) and vim.api.nvim_get_option_value("filetype", { buf = current_buf }) == "gitcommit" then
-				schedule_autogen(current_buf, debounce_ms)
-			end
-		end)
-	end
 end
 
 return M
