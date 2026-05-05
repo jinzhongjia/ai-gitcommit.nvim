@@ -33,12 +33,13 @@ end
 ---@param bufnr integer
 ---@return AIGitCommit.BufferState
 function M.get(bufnr)
-	states[bufnr] = states[bufnr] or {
-		generated = false,
-		generating = false,
-		timer = nil,
-		stream_handle = nil,
-	}
+	states[bufnr] = states[bufnr]
+		or {
+			generated = false,
+			generating = false,
+			timer = nil,
+			stream_handle = nil,
+		}
 	return states[bufnr]
 end
 

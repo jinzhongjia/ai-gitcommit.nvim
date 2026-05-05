@@ -92,8 +92,18 @@ T["filter_files"] = new_set()
 
 T["filter_files"]["keeps rename when old or new path matches"] = function()
 	local files = {
-		{ status = "R100", file = "old/path.lua -> new/path.lua", old_file = "old/path.lua", new_file = "new/path.lua" },
-		{ status = "R100", file = "old/skip.lua -> new/skip.lua", old_file = "old/skip.lua", new_file = "new/skip.lua" },
+		{
+			status = "R100",
+			file = "old/path.lua -> new/path.lua",
+			old_file = "old/path.lua",
+			new_file = "new/path.lua",
+		},
+		{
+			status = "R100",
+			file = "old/skip.lua -> new/skip.lua",
+			old_file = "old/skip.lua",
+			new_file = "new/skip.lua",
+		},
 	}
 	local cfg = {
 		filter = {

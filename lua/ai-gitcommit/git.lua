@@ -153,14 +153,18 @@ end
 function M.get_head_files(bufnr_or_callback, callback)
 	local bufnr
 	bufnr, callback = normalize_args(bufnr_or_callback, callback)
-	run_git({ "diff-tree", "--no-commit-id", "--name-status", "-z", "-r", "--root", "HEAD" }, { bufnr = bufnr }, function(stdout, code, stderr)
-		if code ~= 0 then
-			callback({}, build_git_error(stdout, stderr, "Failed to get HEAD files"))
-			return
-		end
+	run_git(
+		{ "diff-tree", "--no-commit-id", "--name-status", "-z", "-r", "--root", "HEAD" },
+		{ bufnr = bufnr },
+		function(stdout, code, stderr)
+			if code ~= 0 then
+				callback({}, build_git_error(stdout, stderr, "Failed to get HEAD files"))
+				return
+			end
 
-		callback(parse_name_status(stdout), nil)
-	end)
+			callback(parse_name_status(stdout), nil)
+		end
+	)
 end
 
 ---@param bufnr_or_callback? integer|fun(is_repo: boolean)

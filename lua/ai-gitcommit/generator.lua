@@ -59,7 +59,10 @@ local function get_diff_context(bufnr, callback)
 			done(
 				head_diff,
 				head_files,
-				"This commit message is being amended without staged changes. Use the current HEAD commit diff below as the context to rewrite the message.",
+				(
+					"This commit message is being amended without staged changes. "
+					.. "Use the current HEAD commit diff below as the context to rewrite the message."
+				),
 				nil
 			)
 		end

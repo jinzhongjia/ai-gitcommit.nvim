@@ -3,19 +3,30 @@ local new_set = MiniTest.new_set
 
 local T = new_set()
 
-local autogen
-
 T["setup"] = function()
 	require("ai-gitcommit.config").setup({ languages = { "English" } })
+end
+
+---@return table, table|nil, table|nil
+local function setup_autogen_mocks()
+	local original_generator = package.loaded["ai-gitcommit.generator"]
+	local original_providers = package.loaded["ai-gitcommit.providers"]
+
+	package.loaded["ai-gitcommit.providers"] = {
+		has_current_credentials = function()
+			return true
+		end,
+	}
+
 	helpers.unload_module("ai-gitcommit.autogen")
-	autogen = require("ai-gitcommit.autogen")
+	return require("ai-gitcommit.autogen"), original_generator, original_providers
 end
 
 T["skips generator when buffer changes before debounce"] = function()
 	local original_defer_fn = vim.defer_fn
-	local original_loaded = package.loaded["ai-gitcommit.generator"]
 	local pending_cb = nil
 	local ran = false
+	local autogen, original_generator, original_providers = setup_autogen_mocks()
 
 	package.loaded["ai-gitcommit.generator"] = {
 		run = function()
@@ -41,7 +52,8 @@ T["skips generator when buffer changes before debounce"] = function()
 	end
 
 	vim.defer_fn = original_defer_fn
-	package.loaded["ai-gitcommit.generator"] = original_loaded
+	package.loaded["ai-gitcommit.generator"] = original_generator
+	package.loaded["ai-gitcommit.providers"] = original_providers
 	helpers.cleanup_buffer(bufnr)
 
 	MiniTest.expect.equality(ran, false)
@@ -49,9 +61,9 @@ end
 
 T["runs generator when buffer stays untouched"] = function()
 	local original_defer_fn = vim.defer_fn
-	local original_loaded = package.loaded["ai-gitcommit.generator"]
 	local pending_cb = nil
 	local ran = false
+	local autogen, original_generator, original_providers = setup_autogen_mocks()
 
 	package.loaded["ai-gitcommit.generator"] = {
 		run = function()
@@ -74,7 +86,8 @@ T["runs generator when buffer stays untouched"] = function()
 	end
 
 	vim.defer_fn = original_defer_fn
-	package.loaded["ai-gitcommit.generator"] = original_loaded
+	package.loaded["ai-gitcommit.generator"] = original_generator
+	package.loaded["ai-gitcommit.providers"] = original_providers
 	helpers.cleanup_buffer(bufnr)
 
 	MiniTest.expect.equality(ran, true)
