@@ -5,9 +5,13 @@ on:
     types: [created]
   pull_request_review_comment:
     types: [created]
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
 
 jobs:
-  opencode:
+  opencode-comment:
     if: |
       contains(github.event.comment.body, ' /oc') ||
       startsWith(github.event.comment.body, '/oc') ||
@@ -31,3 +35,58 @@ jobs:
           OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
         with:
           model: opencode-go/deepseek-v4-flash
+
+  opencode-issue:
+    if: |
+      github.event_name == 'issues' &&
+      (
+        contains(github.event.issue.title, 'opencode') ||
+        contains(github.event.issue.body || '', 'opencode')
+      )
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode for issue triage
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/deepseek-v4-flash
+          prompt: |
+            Review this newly created issue because it mentions "opencode".
+            Summarize the request, identify the likely affected area, and suggest next steps.
+            If there's enough context, provide an actionable implementation or investigation plan.
+
+  opencode-pr-review:
+    if: github.event.pull_request.draft == false
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: read
+      issues: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Run opencode PR review
+        uses: anomalyco/opencode/github@latest
+        env:
+          OPENCODE_API_KEY: ${{ secrets.OPENCODE_API_KEY }}
+        with:
+          model: opencode-go/deepseek-v4-flash
+          prompt: |
+            Review this pull request.
+            Focus on correctness, regressions, test coverage, and maintainability.
+            Call out any risky changes or missing validation.
