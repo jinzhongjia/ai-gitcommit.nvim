@@ -1,3 +1,5 @@
+local buffer = require("ai-gitcommit.buffer")
+
 local M = {}
 
 ---@param bufnr integer
@@ -21,7 +23,6 @@ end
 ---@field private timer userdata?
 ---@field private bufnr number
 ---@field private first_comment_line number
----@field private written_lines number
 ---@field private interval_ms number
 ---@field private chars_per_tick number
 ---@field private running boolean
@@ -61,7 +62,6 @@ function M.new(opts)
 		timer = nil,
 		bufnr = opts.bufnr,
 		first_comment_line = opts.first_comment_line,
-		written_lines = 0,
 		interval_ms = opts.interval_ms or 12,
 		chars_per_tick = opts.chars_per_tick or 4,
 		running = false,
@@ -180,6 +180,10 @@ function M:_append_chars(chars, count)
 	return true
 end
 
+-- Every call re-detects where the comment lines start via find_first_comment_line,
+-- then replaces only [0, first_comment - 1). This keeps git comments untouched
+-- regardless of how the message area grows or shrinks across ticks.
+-- DO NOT cache first_comment_line — the position shifts as displayed content changes length.
 ---@return nil
 function M:_update_buffer()
 	if not is_buffer_valid(self.bufnr) then
@@ -191,9 +195,8 @@ function M:_update_buffer()
 		table.insert(self.displayed, "")
 	end
 
-	local delete_to = math.max(self.written_lines, self.first_comment_line - 1)
-	vim.api.nvim_buf_set_lines(self.bufnr, 0, delete_to, false, self.displayed)
-	self.written_lines = #self.displayed
+	local first_comment = buffer.find_first_comment_line(self.bufnr)
+	vim.api.nvim_buf_set_lines(self.bufnr, 0, first_comment - 1, false, self.displayed)
 	if self.on_update then
 		self.on_update()
 	end
@@ -247,7 +250,6 @@ function M:stop()
 	self.queue = {}
 	self.queue_len = 0
 	self.displayed = { "" }
-	self.written_lines = 0
 	self.done_callback = nil
 end
 
