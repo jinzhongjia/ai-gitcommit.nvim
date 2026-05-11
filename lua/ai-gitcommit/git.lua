@@ -26,10 +26,9 @@ local function run_git(cmd, opts, callback)
 	if opts.bufnr and vim.api.nvim_buf_is_valid(opts.bufnr) then
 		local name = vim.api.nvim_buf_get_name(opts.bufnr)
 		if name ~= "" and not name:match("^%w[%w+.-]*://") then
-			local candidate = vim.fs.dirname(name)
-			local stat = candidate and vim.uv.fs_stat(candidate) or nil
-			if stat and stat.type == "directory" then
-				cwd = candidate
+			local root = vim.fs.root(name, ".git")
+			if root then
+				cwd = root
 			end
 		end
 	end

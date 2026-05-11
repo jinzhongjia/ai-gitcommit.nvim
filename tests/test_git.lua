@@ -80,7 +80,7 @@ T["get_repo_root"]["uses target buffer directory as cwd"] = function()
 	helpers.cleanup_buffer(bufnr)
 
 	MiniTest.expect.equality(done, true)
-	MiniTest.expect.equality(seen_cwd, vim.fs.dirname(repo_file))
+	MiniTest.expect.equality(seen_cwd, vim.uv.cwd())
 end
 
 T["get_staged_diff"] = new_set()
