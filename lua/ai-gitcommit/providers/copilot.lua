@@ -46,9 +46,9 @@ local function is_responses_endpoint(endpoint)
 	if type(endpoint) ~= "string" then
 		return false
 	end
-	-- Match `/responses` or `/responses?...` / `/responses#...`, but not
-	-- `/chat/completions` (which also ends with the word "completions").
-	return endpoint:match("/responses$") ~= nil or endpoint:match("/responses[?#]") ~= nil
+	-- Match `/responses`, `/responses/`, `/responses?...`, `/responses#...`,
+	-- but not `/chat/completions` (which also ends with "completions").
+	return endpoint:match("/responses/?$") ~= nil or endpoint:match("/responses/?[?#]") ~= nil
 end
 
 ---@param prompt string
@@ -122,13 +122,11 @@ function M.resolve_credentials(config, callback)
 		end
 
 		---@type AIGitCommit.Credentials
-		local creds = {
-			api_key = token_data.token,
-			endpoint = token_data.endpoint,
-		}
+		local creds = { api_key = token_data.token }
 
-		-- User pinned a model explicitly → use it. We assume /chat/completions
-		-- unless the user also set providers.copilot.endpoint to a /responses URL.
+		-- User pinned a model explicitly → trust their config.endpoint as-is
+		-- (which may be /chat/completions or /responses). Leaving creds.endpoint
+		-- nil keeps generator.lua from overwriting the user's setting.
 		if type(config.model) == "string" and config.model ~= "" then
 			callback(creds, nil)
 			return
