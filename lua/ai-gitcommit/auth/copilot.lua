@@ -7,13 +7,19 @@ local M = {}
 ---@field token string
 ---@field expires_at? number
 ---@field endpoint? string
+---@field endpoint_base? string
 
 ---@class AIGitCommit.CopilotTokenResult
 ---@field token string
 ---@field endpoint? string
+---@field endpoint_base? string
+
+---@class AIGitCommit.CopilotModelEntry
+---@field id string
+---@field endpoint "chat"|"responses"
 
 ---@class AIGitCommit.CopilotModelsCache
----@field ids string[]
+---@field entries AIGitCommit.CopilotModelEntry[]
 ---@field expires_at number
 
 ---@class AIGitCommit.CopilotTokenResponse
@@ -37,7 +43,8 @@ local _pending_callbacks = {}
 local _mock_fetch_copilot_token = nil
 ---@type AIGitCommit.CopilotModelsCache?
 local _cached_models = nil
----@type fun(copilot_token: string, endpoint: string, callback: fun(ids?: string[], err?: string))?
+---@alias AIGitCommit.CopilotFetchModelsCb fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
+---@type fun(copilot_token: string, endpoint: string, callback: AIGitCommit.CopilotFetchModelsCb)?
 local _mock_fetch_models = nil
 
 ---@param stdout string
@@ -237,17 +244,20 @@ local function refresh_copilot_token(oauth_token, callback)
 		end
 
 		local endpoint = nil
+		local endpoint_base = nil
 		if copilot_data.endpoints and copilot_data.endpoints.api then
-			endpoint = copilot_data.endpoints.api .. "/chat/completions"
+			endpoint_base = copilot_data.endpoints.api
+			endpoint = endpoint_base .. "/chat/completions"
 		end
 
 		_cached_copilot_token = {
 			token = copilot_data.token,
 			expires_at = copilot_data.expires_at,
 			endpoint = endpoint,
+			endpoint_base = endpoint_base,
 		}
 
-		callback({ token = copilot_data.token, endpoint = endpoint }, nil)
+		callback({ token = copilot_data.token, endpoint = endpoint, endpoint_base = endpoint_base }, nil)
 	end)
 end
 
@@ -256,7 +266,11 @@ end
 ---@param callback fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)
 local function get_valid_copilot_token(oauth_token, callback)
 	if is_copilot_token_valid(_cached_copilot_token) then
-		callback({ token = _cached_copilot_token.token, endpoint = _cached_copilot_token.endpoint }, nil)
+		callback({
+			token = _cached_copilot_token.token,
+			endpoint = _cached_copilot_token.endpoint,
+			endpoint_base = _cached_copilot_token.endpoint_base,
+		}, nil)
 		return
 	end
 
@@ -313,11 +327,12 @@ local function model_multiplier(model)
 	return math.huge
 end
 
---- Parse Copilot /models response and return chat-capable model IDs,
+--- Parse Copilot /models response and return chat-capable model entries,
 --- sorted by billing multiplier ascending (cheapest first). Ties preserve
---- the order returned by the API.
+--- the order returned by the API. Each entry records whether the model is
+--- routed via /chat/completions or /responses.
 ---@param body string
----@return string[]?, string?
+---@return AIGitCommit.CopilotModelEntry[]?, string?
 local function parse_models_response(body)
 	local ok, data = pcall(vim.json.decode, body)
 	if not ok or type(data) ~= "table" or type(data.data) ~= "table" then
@@ -337,9 +352,27 @@ local function parse_models_response(body)
 					is_chat = vim.tbl_contains(ctype, "chat")
 				end
 			end
-			if is_chat and type(model.id) == "string" and model.id ~= "" then
+
+			-- Decide which transport the model is reachable on. If the field
+			-- is absent (older API shapes), assume /chat/completions.
+			local endpoint_kind = "chat"
+			local eps = model.supported_endpoints
+			if type(eps) == "table" and #eps > 0 then
+				local has_chat = vim.tbl_contains(eps, "/chat/completions")
+				local has_responses = vim.tbl_contains(eps, "/responses")
+				if has_chat then
+					endpoint_kind = "chat"
+				elseif has_responses then
+					endpoint_kind = "responses"
+				else
+					endpoint_kind = nil
+				end
+			end
+
+			if is_chat and endpoint_kind and type(model.id) == "string" and model.id ~= "" then
 				table.insert(entries, {
 					id = model.id,
+					endpoint = endpoint_kind,
 					multiplier = model_multiplier(model),
 					order = idx,
 				})
@@ -358,16 +391,16 @@ local function parse_models_response(body)
 		return a.order < b.order
 	end)
 
-	local ids = {}
+	local result = {}
 	for i, entry in ipairs(entries) do
-		ids[i] = entry.id
+		result[i] = { id = entry.id, endpoint = entry.endpoint }
 	end
-	return ids, nil
+	return result, nil
 end
 
 ---@param copilot_token string
 ---@param endpoint string
----@param callback fun(ids?: string[], err?: string)
+---@param callback fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
 local function request_models(copilot_token, endpoint, callback)
 	if _mock_fetch_models then
 		return _mock_fetch_models(copilot_token, endpoint, callback)
@@ -394,12 +427,12 @@ local function request_models(copilot_token, endpoint, callback)
 			callback(nil, decode_error(stdout, "Failed to fetch Copilot models"))
 			return
 		end
-		local ids, err = parse_models_response(stdout)
+		local entries, err = parse_models_response(stdout)
 		if err then
 			callback(nil, err)
 			return
 		end
-		callback(ids, nil)
+		callback(entries, nil)
 	end)
 end
 
@@ -407,18 +440,19 @@ end
 ---@return boolean
 local function is_models_cache_valid(models)
 	return models ~= nil
-		and type(models.ids) == "table"
-		and #models.ids > 0
+		and type(models.entries) == "table"
+		and #models.entries > 0
 		and type(models.expires_at) == "number"
 		and models.expires_at > os.time()
 end
 
---- Fetch the list of Copilot model IDs available to the current account.
---- Results are cached in memory for 30 minutes.
----@param callback fun(ids?: string[], err?: string)
+--- Fetch the list of Copilot model entries available to the current account.
+--- Each entry is `{ id = "...", endpoint = "chat"|"responses" }`, sorted by
+--- billing multiplier ascending. Results are cached in memory for 30 minutes.
+---@param callback fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
 function M.fetch_models(callback)
 	if is_models_cache_valid(_cached_models) then
-		callback(vim.deepcopy(_cached_models.ids), nil)
+		callback(vim.deepcopy(_cached_models.entries), nil)
 		return
 	end
 
@@ -429,13 +463,13 @@ function M.fetch_models(callback)
 		end
 
 		local endpoint = token_data.endpoint or "https://api.githubcopilot.com/chat/completions"
-		request_models(token_data.token, endpoint, function(ids, err)
+		request_models(token_data.token, endpoint, function(entries, err)
 			if err then
 				callback(nil, err)
 				return
 			end
-			_cached_models = { ids = ids, expires_at = os.time() + MODELS_CACHE_TTL }
-			callback(vim.deepcopy(ids), nil)
+			_cached_models = { entries = entries, expires_at = os.time() + MODELS_CACHE_TTL }
+			callback(vim.deepcopy(entries), nil)
 		end)
 	end)
 end

@@ -1,4 +1,5 @@
 local openai_compat = require("ai-gitcommit.providers.openai_compat")
+local openai_responses = require("ai-gitcommit.providers.openai_responses")
 
 local M = {}
 local version = vim.version()
@@ -39,6 +40,17 @@ local function build_headers(config)
 	}
 end
 
+---@param endpoint string?
+---@return boolean
+local function is_responses_endpoint(endpoint)
+	if type(endpoint) ~= "string" then
+		return false
+	end
+	-- Match `/responses` or `/responses?...` / `/responses#...`, but not
+	-- `/chat/completions` (which also ends with the word "completions").
+	return endpoint:match("/responses$") ~= nil or endpoint:match("/responses[?#]") ~= nil
+end
+
 ---@param prompt string
 ---@param config AIGitCommit.ProviderConfig
 ---@param on_chunk fun(content: string)
@@ -46,6 +58,13 @@ end
 ---@param on_error fun(err: string)
 ---@return AIGitCommit.StreamHandle?
 function M.generate(prompt, config, on_chunk, on_done, on_error)
+	if is_responses_endpoint(config.endpoint) then
+		return openai_responses.generate(prompt, config, {
+			build_headers = build_headers,
+			map_error = map_copilot_error,
+		}, on_chunk, on_done, on_error)
+	end
+
 	return openai_compat.generate(prompt, config, {
 		build_headers = build_headers,
 		map_error = map_copilot_error,
@@ -66,6 +85,32 @@ function M.credential_status(config)
 	return M.has_credentials(config) and "authenticated" or "not authenticated"
 end
 
+---@param endpoint_base string?
+---@param endpoint_kind "chat"|"responses"
+---@param fallback_endpoint string?
+---@return string?
+local function build_endpoint(endpoint_base, endpoint_kind, fallback_endpoint)
+	if endpoint_base and endpoint_base ~= "" then
+		if endpoint_kind == "responses" then
+			return endpoint_base .. "/responses"
+		end
+		return endpoint_base .. "/chat/completions"
+	end
+	-- No base from the token response → fall back to whatever the chat
+	-- endpoint was, rewriting the suffix if needed.
+	if not fallback_endpoint then
+		return nil
+	end
+	if endpoint_kind == "responses" then
+		local rewritten, replaced = fallback_endpoint:gsub("/chat/completions(/?)$", "/responses")
+		if replaced > 0 then
+			return rewritten
+		end
+		return fallback_endpoint
+	end
+	return fallback_endpoint
+end
+
 ---@param config AIGitCommit.ProviderConfig
 ---@param callback fun(creds?: AIGitCommit.Credentials, err?: string)
 function M.resolve_credentials(config, callback)
@@ -82,20 +127,24 @@ function M.resolve_credentials(config, callback)
 			endpoint = token_data.endpoint,
 		}
 
-		-- User pinned a model explicitly → use it.
+		-- User pinned a model explicitly → use it. We assume /chat/completions
+		-- unless the user also set providers.copilot.endpoint to a /responses URL.
 		if type(config.model) == "string" and config.model ~= "" then
 			callback(creds, nil)
 			return
 		end
 
-		-- Otherwise resolve a default from Copilot's /models endpoint.
+		-- Otherwise resolve a default from Copilot's /models endpoint and
+		-- route to the matching transport.
 		local copilot_auth = require("ai-gitcommit.auth.copilot")
-		copilot_auth.fetch_models(function(ids, models_err)
+		copilot_auth.fetch_models(function(entries, models_err)
 			if models_err then
 				callback(nil, "Failed to resolve Copilot model: " .. models_err)
 				return
 			end
-			creds.model = ids[1]
+			local entry = entries[1]
+			creds.model = entry.id
+			creds.endpoint = build_endpoint(token_data.endpoint_base, entry.endpoint, token_data.endpoint)
 			callback(creds, nil)
 		end)
 	end)

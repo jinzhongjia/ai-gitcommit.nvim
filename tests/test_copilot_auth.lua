@@ -398,12 +398,14 @@ T["parse_models_response"]["keeps only picker-enabled chat models"] = function()
 		},
 	})
 
-	local ids, err = copilot._testing.parse_models_response(body)
+	local entries, err = copilot._testing.parse_models_response(body)
 	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(#ids, 2)
-	-- No billing info on either → stable API order
-	MiniTest.expect.equality(ids[1], "gpt-4o")
-	MiniTest.expect.equality(ids[2], "claude-sonnet-4")
+	MiniTest.expect.equality(#entries, 2)
+	-- No billing info on either → stable API order; both default to /chat.
+	MiniTest.expect.equality(entries[1].id, "gpt-4o")
+	MiniTest.expect.equality(entries[1].endpoint, "chat")
+	MiniTest.expect.equality(entries[2].id, "claude-sonnet-4")
+	MiniTest.expect.equality(entries[2].endpoint, "chat")
 end
 
 T["parse_models_response"]["sorts by billing multiplier ascending"] = function()
@@ -436,12 +438,12 @@ T["parse_models_response"]["sorts by billing multiplier ascending"] = function()
 		},
 	})
 
-	local ids, err = copilot._testing.parse_models_response(body)
+	local entries, err = copilot._testing.parse_models_response(body)
 	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(ids[1], "grok-code-fast-1")
-	MiniTest.expect.equality(ids[2], "gpt-4o")
-	MiniTest.expect.equality(ids[3], "claude-opus")
-	MiniTest.expect.equality(ids[4], "mystery-model")
+	MiniTest.expect.equality(entries[1].id, "grok-code-fast-1")
+	MiniTest.expect.equality(entries[2].id, "gpt-4o")
+	MiniTest.expect.equality(entries[3].id, "claude-opus")
+	MiniTest.expect.equality(entries[4].id, "mystery-model")
 end
 
 T["parse_models_response"]["preserves api order when multipliers are equal"] = function()
@@ -462,10 +464,88 @@ T["parse_models_response"]["preserves api order when multipliers are equal"] = f
 		},
 	})
 
-	local ids, err = copilot._testing.parse_models_response(body)
+	local entries, err = copilot._testing.parse_models_response(body)
 	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(ids[1], "a-model")
-	MiniTest.expect.equality(ids[2], "b-model")
+	MiniTest.expect.equality(entries[1].id, "a-model")
+	MiniTest.expect.equality(entries[2].id, "b-model")
+end
+
+T["parse_models_response"]["tags /responses-only models with endpoint='responses'"] = function()
+	local body = vim.json.encode({
+		data = {
+			{
+				id = "gpt-5.3-codex",
+				model_picker_enabled = true,
+				capabilities = { type = "chat" },
+				billing = { multiplier = 0 },
+				supported_endpoints = { "/responses" },
+			},
+			{
+				id = "gpt-4o",
+				model_picker_enabled = true,
+				capabilities = { type = "chat" },
+				billing = { multiplier = 1 },
+				supported_endpoints = { "/chat/completions" },
+			},
+			{
+				id = "claude-sonnet-4",
+				model_picker_enabled = true,
+				capabilities = { type = "chat" },
+				billing = { multiplier = 2 },
+				supported_endpoints = { "/chat/completions", "/responses" },
+			},
+		},
+	})
+
+	local entries, err = copilot._testing.parse_models_response(body)
+	MiniTest.expect.equality(err, nil)
+	MiniTest.expect.equality(#entries, 3)
+	-- Cheapest first; codex is /responses, gpt-4o is /chat, claude can go either
+	-- way and we prefer /chat when both are advertised.
+	MiniTest.expect.equality(entries[1].id, "gpt-5.3-codex")
+	MiniTest.expect.equality(entries[1].endpoint, "responses")
+	MiniTest.expect.equality(entries[2].id, "gpt-4o")
+	MiniTest.expect.equality(entries[2].endpoint, "chat")
+	MiniTest.expect.equality(entries[3].id, "claude-sonnet-4")
+	MiniTest.expect.equality(entries[3].endpoint, "chat")
+end
+
+T["parse_models_response"]["drops models with no usable endpoint"] = function()
+	local body = vim.json.encode({
+		data = {
+			{
+				id = "embeddings-only",
+				model_picker_enabled = true,
+				capabilities = { type = "chat" },
+				supported_endpoints = { "/embeddings" },
+			},
+			{
+				id = "gpt-4o",
+				model_picker_enabled = true,
+				capabilities = { type = "chat" },
+				supported_endpoints = { "/chat/completions" },
+			},
+		},
+	})
+
+	local entries, err = copilot._testing.parse_models_response(body)
+	MiniTest.expect.equality(err, nil)
+	MiniTest.expect.equality(#entries, 1)
+	MiniTest.expect.equality(entries[1].id, "gpt-4o")
+end
+
+T["parse_models_response"]["defaults to /chat when supported_endpoints is absent"] = function()
+	local body = vim.json.encode({
+		data = {
+			{ id = "legacy-chat", model_picker_enabled = true, capabilities = { type = "chat" } },
+		},
+	})
+
+	local entries, err = copilot._testing.parse_models_response(body)
+	MiniTest.expect.equality(err, nil)
+	MiniTest.expect.equality(#entries, 1)
+	MiniTest.expect.equality(entries[1].id, "legacy-chat")
+	MiniTest.expect.equality(entries[1].endpoint, "chat")
 end
 
 T["parse_models_response"]["errors on empty result"] = function()
@@ -512,20 +592,21 @@ T["fetch_models"] = new_set({
 	},
 })
 
-T["fetch_models"]["returns cached ids without refetch"] = function()
+T["fetch_models"]["returns cached entries without refetch"] = function()
 	copilot._testing.set_cached_models({
-		ids = { "cached-model" },
+		entries = { { id = "cached-model", endpoint = "chat" } },
 		expires_at = os.time() + 300,
 	})
 
-	local result_ids, result_err
-	copilot.fetch_models(function(ids, err)
-		result_ids = ids
+	local result_entries, result_err
+	copilot.fetch_models(function(entries, err)
+		result_entries = entries
 		result_err = err
 	end)
 
 	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_ids[1], "cached-model")
+	MiniTest.expect.equality(result_entries[1].id, "cached-model")
+	MiniTest.expect.equality(result_entries[1].endpoint, "chat")
 end
 
 T["fetch_models"]["uses mocked fetch and caches result"] = function()
@@ -534,29 +615,35 @@ T["fetch_models"]["uses mocked fetch and caches result"] = function()
 		token = "copilot_token",
 		expires_at = os.time() + 3600,
 		endpoint = "https://api.githubcopilot.com/chat/completions",
+		endpoint_base = "https://api.githubcopilot.com",
 	})
 
 	copilot._testing.set_mock_fetch_models(function(_token, _endpoint, cb)
 		vim.schedule(function()
-			cb({ "gpt-4o", "claude-sonnet-4" }, nil)
+			cb({
+				{ id = "gpt-4o", endpoint = "chat" },
+				{ id = "gpt-5.3-codex", endpoint = "responses" },
+			}, nil)
 		end)
 	end)
 
-	local result_ids, result_err
-	copilot.fetch_models(function(ids, err)
-		result_ids = ids
+	local result_entries, result_err
+	copilot.fetch_models(function(entries, err)
+		result_entries = entries
 		result_err = err
 	end)
 
 	vim.wait(200, function()
-		return result_ids ~= nil or result_err ~= nil
+		return result_entries ~= nil or result_err ~= nil
 	end)
 
 	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_ids[1], "gpt-4o")
+	MiniTest.expect.equality(result_entries[1].id, "gpt-4o")
+	MiniTest.expect.equality(result_entries[2].id, "gpt-5.3-codex")
+	MiniTest.expect.equality(result_entries[2].endpoint, "responses")
 
 	local cached = copilot._testing.get_cached_models()
-	MiniTest.expect.equality(cached.ids[1], "gpt-4o")
+	MiniTest.expect.equality(cached.entries[1].id, "gpt-4o")
 end
 
 T["fetch_models"]["propagates fetch errors without caching"] = function()
@@ -565,6 +652,7 @@ T["fetch_models"]["propagates fetch errors without caching"] = function()
 		token = "copilot_token",
 		expires_at = os.time() + 3600,
 		endpoint = "https://api.githubcopilot.com/chat/completions",
+		endpoint_base = "https://api.githubcopilot.com",
 	})
 
 	copilot._testing.set_mock_fetch_models(function(_token, _endpoint, cb)
@@ -573,17 +661,17 @@ T["fetch_models"]["propagates fetch errors without caching"] = function()
 		end)
 	end)
 
-	local result_ids, result_err
-	copilot.fetch_models(function(ids, err)
-		result_ids = ids
+	local result_entries, result_err
+	copilot.fetch_models(function(entries, err)
+		result_entries = entries
 		result_err = err
 	end)
 
 	vim.wait(200, function()
-		return result_ids ~= nil or result_err ~= nil
+		return result_entries ~= nil or result_err ~= nil
 	end)
 
-	MiniTest.expect.equality(result_ids, nil)
+	MiniTest.expect.equality(result_entries, nil)
 	MiniTest.expect.equality(result_err, "simulated failure")
 	MiniTest.expect.equality(copilot._testing.get_cached_models(), nil)
 end
