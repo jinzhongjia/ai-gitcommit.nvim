@@ -116,6 +116,130 @@ end
 
 T["copilot generate"] = new_set()
 
+---@param config table
+---@return table captured
+local function capture_copilot_request(config)
+	local original_stream = package.loaded["ai-gitcommit.stream"]
+	helpers.unload_module("ai-gitcommit.providers.copilot")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
+	helpers.unload_module("ai-gitcommit.providers.openai_responses")
+
+	local captured = nil
+	package.loaded["ai-gitcommit.stream"] = {
+		request = function(opts, _, on_done, _)
+			captured = opts
+			on_done()
+			return { system_obj = nil }
+		end,
+	}
+
+	local copilot = require("ai-gitcommit.providers.copilot")
+	copilot.generate("hello", config, function(_) end, function() end, function(_) end)
+
+	package.loaded["ai-gitcommit.stream"] = original_stream
+	helpers.unload_module("ai-gitcommit.providers.copilot")
+	helpers.unload_module("ai-gitcommit.providers.openai_compat")
+	helpers.unload_module("ai-gitcommit.providers.openai_responses")
+
+	return captured
+end
+
+T["copilot generate"]["routes /responses endpoint through responses provider"] = function()
+	local captured = capture_copilot_request({
+		model = "gpt-5.3-codex",
+		max_tokens = 80,
+		endpoint = "https://api.githubcopilot.com/responses",
+		api_key = "test-token",
+	})
+
+	MiniTest.expect.equality(captured.url, "https://api.githubcopilot.com/responses")
+	-- Responses API uses `input`, NOT `messages`
+	MiniTest.expect.equality(captured.body.messages, nil)
+	MiniTest.expect.equality(type(captured.body.input), "table")
+	MiniTest.expect.equality(captured.body.input[1].role, "user")
+	MiniTest.expect.equality(captured.body.input[1].content, "hello")
+	MiniTest.expect.equality(captured.body.store, false)
+	MiniTest.expect.equality(captured.body.max_output_tokens, 80)
+	MiniTest.expect.equality(captured.headers["Authorization"], "Bearer test-token")
+end
+
+T["copilot generate"]["treats /responses with trailing slash as responses"] = function()
+	local captured = capture_copilot_request({
+		model = "gpt-5.3-codex",
+		max_tokens = 60,
+		endpoint = "https://api.githubcopilot.com/responses/",
+		api_key = "test-token",
+	})
+
+	-- Should still dispatch to responses provider, NOT chat/completions
+	MiniTest.expect.equality(captured.body.messages, nil)
+	MiniTest.expect.equality(type(captured.body.input), "table")
+end
+
+T["copilot generate"]["routes /chat/completions endpoint through chat provider"] = function()
+	local captured = capture_copilot_request({
+		model = "gpt-4o",
+		max_tokens = 80,
+		endpoint = "https://api.githubcopilot.com/chat/completions",
+		api_key = "test-token",
+	})
+
+	-- Chat path: expect messages, NOT input
+	MiniTest.expect.equality(captured.body.input, nil)
+	MiniTest.expect.equality(type(captured.body.messages), "table")
+	MiniTest.expect.equality(captured.body.messages[1].content, "hello")
+end
+
+T["copilot resolve_credentials"] = new_set()
+
+---@param config table
+---@return table result {creds, err}
+local function resolve_with_mock_token(config, token_data)
+	helpers.unload_module("ai-gitcommit.providers.copilot")
+	helpers.unload_module("ai-gitcommit.auth")
+
+	local original_auth = package.loaded["ai-gitcommit.auth"]
+	package.loaded["ai-gitcommit.auth"] = {
+		get_token = function(_, cb)
+			cb(token_data, nil)
+		end,
+		is_authenticated = function(_)
+			return true
+		end,
+	}
+
+	local result = { creds = nil, err = nil }
+	local copilot = require("ai-gitcommit.providers.copilot")
+	copilot.resolve_credentials(config, function(creds, err)
+		result.creds = creds
+		result.err = err
+	end)
+
+	package.loaded["ai-gitcommit.auth"] = original_auth
+	helpers.unload_module("ai-gitcommit.providers.copilot")
+
+	return result
+end
+
+T["copilot resolve_credentials"]["preserves user endpoint when model is pinned"] = function()
+	-- User explicitly pinned a codex model + /responses endpoint.
+	-- creds.endpoint must stay nil so generator.lua doesn't overwrite
+	-- the user's provider_config.endpoint.
+	local result = resolve_with_mock_token({
+		model = "gpt-5.3-codex",
+		endpoint = "https://api.githubcopilot.com/responses",
+	}, {
+		token = "copilot_token_xyz",
+		endpoint = "https://api.githubcopilot.com/chat/completions",
+		endpoint_base = "https://api.githubcopilot.com",
+	})
+
+	MiniTest.expect.equality(result.err, nil)
+	MiniTest.expect.equality(result.creds.api_key, "copilot_token_xyz")
+	MiniTest.expect.equality(result.creds.endpoint, nil)
+	MiniTest.expect.equality(result.creds.model, nil)
+end
+
 T["copilot generate"]["sends completion-only headers and payload"] = function()
 	local original_stream = package.loaded["ai-gitcommit.stream"]
 	helpers.unload_module("ai-gitcommit.providers.copilot")

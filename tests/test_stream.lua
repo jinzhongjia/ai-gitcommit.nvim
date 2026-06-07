@@ -48,27 +48,45 @@ T["request"]["returns nil on spawn failure with invalid url"] = function()
 end
 
 T["request"]["builds correct curl args"] = function()
-	local chunks = {}
-	local errors = {}
+	local original_system = vim.system
+	local captured_args = nil
 	local done_called = false
 
+	vim.system = function(args, _opts, cb)
+		captured_args = args
+		cb({ code = 0 })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _) end,
+		}
+	end
+
 	stream.request({
-		url = "https://httpbin.org/status/404",
+		url = "https://example.com/api",
 		method = "GET",
 		headers = { ["X-Test"] = "value" },
-	}, function(chunk)
-		table.insert(chunks, chunk)
-	end, function()
+		body = { hello = "world" },
+	}, function() end, function()
 		done_called = true
-	end, function(err)
-		table.insert(errors, err)
+	end, function() end)
+
+	vim.wait(500, function()
+		return done_called
 	end)
 
-	vim.wait(3000, function()
-		return done_called or #errors > 0
-	end)
+	vim.system = original_system
 
-	MiniTest.expect.equality(done_called or #errors > 0, true)
+	MiniTest.expect.equality(type(captured_args), "table")
+	MiniTest.expect.equality(captured_args[1], "curl")
+	-- Method, URL, and header must all be present in the curl arg list.
+	local joined = table.concat(captured_args, " ")
+	MiniTest.expect.equality(joined:find("-X GET", 1, true) ~= nil, true)
+	MiniTest.expect.equality(joined:find("X-Test: value", 1, true) ~= nil, true)
+	MiniTest.expect.equality(joined:find("https://example.com/api", 1, true) ~= nil, true)
+	-- Body should be JSON-encoded and present as a -d argument.
+	MiniTest.expect.equality(joined:find('"hello":"world"', 1, true) ~= nil, true)
 end
 
 T["request"]["parses SSE events with CRLF line endings"] = function()
