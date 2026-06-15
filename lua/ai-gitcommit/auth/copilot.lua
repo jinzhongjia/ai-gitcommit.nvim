@@ -187,6 +187,35 @@ local function read_copilot_plugin_oauth_token()
 		end
 	end
 
+	-- Fallback: GitHub Copilot has begun storing the OAuth token in a SQLite
+	-- database (auth.db) rather than the JSON files above. Query it via the
+	-- sqlite3 CLI. Ref: codecompanion.nvim PR #3155.
+	local db_path = vim.fs.joinpath(copilot_dir, "auth.db")
+	if vim.uv.fs_stat(db_path) then
+		if vim.fn.executable("sqlite3") == 0 then
+			vim.notify(
+				"ai-gitcommit: GitHub Copilot stores its token in "
+					.. db_path
+					.. " but the `sqlite3` executable was not found. Install sqlite3 to read it.",
+				vim.log.levels.WARN
+			)
+			return nil
+		end
+
+		local db_token
+		vim.system({
+			"sqlite3",
+			db_path,
+			"SELECT token_ciphertext FROM oauth_tokens WHERE auth_authority == 'github.com' LIMIT 1",
+		}, { text = true }, function(obj)
+			db_token = vim.trim(obj.stdout or "")
+		end):wait(2000)
+
+		if db_token and db_token ~= "" then
+			return db_token
+		end
+	end
+
 	return nil
 end
 

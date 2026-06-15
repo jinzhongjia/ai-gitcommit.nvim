@@ -21,6 +21,28 @@ local function write_json_file(path, data)
 	vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
+--- Whether the sqlite3 executable is available (DB tests are skipped without it)
+---@return boolean
+local function has_sqlite3()
+	return vim.fn.executable("sqlite3") == 1
+end
+
+--- Create a Copilot auth.db SQLite database with a single oauth_tokens row,
+--- mirroring the schema GitHub Copilot uses on disk
+---@param db_path string
+---@param authority string
+---@param token string
+local function write_auth_db(db_path, authority, token)
+	vim.fn.mkdir(vim.fn.fnamemodify(db_path, ":h"), "p")
+	local sql = string.format(
+		"CREATE TABLE oauth_tokens (auth_authority TEXT, token_ciphertext TEXT);"
+			.. "INSERT INTO oauth_tokens VALUES ('%s', '%s');",
+		authority,
+		token
+	)
+	vim.system({ "sqlite3", db_path, sql }, { text = true }):wait(5000)
+end
+
 --- Common pre_case: create temp dir, redirect XDG, clear caches
 local function setup_isolated_env()
 	tmp_dir = create_tmp_dir()
@@ -176,6 +198,42 @@ T["read_copilot_plugin_oauth_token"]["returns nil when oauth_token is empty"] = 
 	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
 		["github.com"] = { oauth_token = "" },
 	})
+
+	local token = copilot._testing.read_copilot_plugin_oauth_token()
+	MiniTest.expect.equality(token, nil)
+end
+
+T["read_copilot_plugin_oauth_token"]["reads from auth.db when JSON files missing"] = function()
+	if not has_sqlite3() then
+		return
+	end
+	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
+	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "github.com", "gho_test_db_token")
+
+	local token = copilot._testing.read_copilot_plugin_oauth_token()
+	MiniTest.expect.equality(token, "gho_test_db_token")
+end
+
+T["read_copilot_plugin_oauth_token"]["prefers JSON files over auth.db"] = function()
+	if not has_sqlite3() then
+		return
+	end
+	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
+	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_from_hosts" },
+	})
+	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "github.com", "gho_from_db")
+
+	local token = copilot._testing.read_copilot_plugin_oauth_token()
+	MiniTest.expect.equality(token, "gho_from_hosts")
+end
+
+T["read_copilot_plugin_oauth_token"]["returns nil when auth.db has no github.com row"] = function()
+	if not has_sqlite3() then
+		return
+	end
+	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
+	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "example.com", "gho_other_authority")
 
 	local token = copilot._testing.read_copilot_plugin_oauth_token()
 	MiniTest.expect.equality(token, nil)
