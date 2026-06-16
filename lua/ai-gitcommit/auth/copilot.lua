@@ -220,7 +220,7 @@ local function read_copilot_plugin_oauth_token()
 		local result = vim.system({
 			"sqlite3",
 			db_path,
-			"SELECT token_ciphertext FROM oauth_tokens WHERE auth_authority == 'github.com' LIMIT 1",
+			"SELECT token_ciphertext FROM oauth_tokens WHERE auth_authority = 'github.com' LIMIT 1",
 		}, { text = true }):wait(2000)
 
 		local db_token = vim.trim(result.stdout or "")
