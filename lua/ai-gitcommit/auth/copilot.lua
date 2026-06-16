@@ -46,6 +46,9 @@ local _cached_models = nil
 ---@alias AIGitCommit.CopilotFetchModelsCb fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
 ---@type fun(copilot_token: string, endpoint: string, callback: AIGitCommit.CopilotFetchModelsCb)?
 local _mock_fetch_models = nil
+--- One-shot warnings already shown this session (reset by M.logout)
+---@type table<string, boolean>
+local _warned = {}
 
 ---@param stdout string
 ---@param fallback string
@@ -155,6 +158,18 @@ local function find_copilot_config_path()
 	return vim.fs.joinpath(home, ".config")
 end
 
+--- Emit a WARN notification at most once per key per session. Avoids spamming
+--- the user when an uncached token resolution repeatedly hits the same problem.
+---@param key string
+---@param msg string
+local function warn_once(key, msg)
+	if _warned[key] then
+		return
+	end
+	_warned[key] = true
+	vim.notify(msg, vim.log.levels.WARN)
+end
+
 --- Read OAuth token from installed Copilot plugin (copilot.vim / copilot.lua)
 ---@return string?
 local function read_copilot_plugin_oauth_token()
@@ -184,6 +199,42 @@ local function read_copilot_plugin_oauth_token()
 					end
 				end
 			end
+		end
+	end
+
+	-- Fallback: GitHub Copilot has begun storing the OAuth token in a SQLite
+	-- database (auth.db) rather than the JSON files above. Query it via the
+	-- sqlite3 CLI. Ref: codecompanion.nvim PR #3155.
+	local db_path = vim.fs.joinpath(copilot_dir, "auth.db")
+	if vim.uv.fs_stat(db_path) then
+		if vim.fn.executable("sqlite3") == 0 then
+			warn_once(
+				"sqlite3_missing",
+				"ai-gitcommit: GitHub Copilot stores its token in "
+					.. db_path
+					.. " but the `sqlite3` executable was not found. Install sqlite3 to read it."
+			)
+			return nil
+		end
+
+		local result = vim.system({
+			"sqlite3",
+			db_path,
+			"SELECT token_ciphertext FROM oauth_tokens WHERE auth_authority = 'github.com' LIMIT 1",
+		}, { text = true }):wait(2000)
+
+		local db_token = vim.trim(result.stdout or "")
+		if db_token ~= "" then
+			return db_token
+		end
+
+		-- A non-zero exit (corrupt/locked DB, schema mismatch, timeout) would
+		-- otherwise be swallowed silently; surface it once so it is diagnosable.
+		if result.code ~= 0 then
+			local stderr = vim.trim(result.stderr or "")
+			local detail = stderr ~= "" and (": " .. stderr)
+				or string.format(" (sqlite3 exited with code %s)", tostring(result.code))
+			warn_once("sqlite3_query_failed", "ai-gitcommit: failed to read the Copilot token from " .. db_path .. detail)
 		end
 	end
 
@@ -480,6 +531,7 @@ function M.logout()
 	_cached_models = nil
 	_token_refresh_in_progress = false
 	_pending_callbacks = {}
+	_warned = {}
 end
 
 -- Exposed for testing only
