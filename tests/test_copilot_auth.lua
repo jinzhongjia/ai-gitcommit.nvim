@@ -239,6 +239,68 @@ T["read_copilot_plugin_oauth_token"]["returns nil when auth.db has no github.com
 	MiniTest.expect.equality(token, nil)
 end
 
+T["read_copilot_plugin_oauth_token"]["warns once when sqlite3 is missing"] = function()
+	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
+	vim.fn.mkdir(copilot_dir, "p")
+	-- A stat-able auth.db is enough; resolution bails before querying it.
+	vim.fn.writefile({ "" }, vim.fs.joinpath(copilot_dir, "auth.db"))
+
+	local notify_count = 0
+	local original_notify = vim.notify
+	local original_path = vim.env.PATH
+	vim.notify = function()
+		notify_count = notify_count + 1
+	end
+	vim.env.PATH = "" -- make sqlite3 unresolvable via vim.fn.executable
+
+	local token1, token2
+	local ok, err = pcall(function()
+		token1 = copilot._testing.read_copilot_plugin_oauth_token()
+		token2 = copilot._testing.read_copilot_plugin_oauth_token()
+	end)
+
+	vim.env.PATH = original_path
+	vim.notify = original_notify
+	if not ok then
+		error(err)
+	end
+
+	MiniTest.expect.equality(token1, nil)
+	MiniTest.expect.equality(token2, nil)
+	MiniTest.expect.equality(notify_count, 1)
+end
+
+T["read_copilot_plugin_oauth_token"]["warns once when the auth.db query fails"] = function()
+	if not has_sqlite3() then
+		return
+	end
+	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
+	vim.fn.mkdir(copilot_dir, "p")
+	-- Not a valid SQLite database → sqlite3 exits non-zero.
+	vim.fn.writefile({ "this is not a sqlite database" }, vim.fs.joinpath(copilot_dir, "auth.db"))
+
+	local notify_count = 0
+	local original_notify = vim.notify
+	vim.notify = function()
+		notify_count = notify_count + 1
+	end
+
+	local token1, token2
+	local ok, err = pcall(function()
+		token1 = copilot._testing.read_copilot_plugin_oauth_token()
+		token2 = copilot._testing.read_copilot_plugin_oauth_token()
+	end)
+
+	vim.notify = original_notify
+	if not ok then
+		error(err)
+	end
+
+	MiniTest.expect.equality(token1, nil)
+	MiniTest.expect.equality(token2, nil)
+	MiniTest.expect.equality(notify_count, 1)
+end
+
 -- ============================================================
 -- resolve_oauth_token
 -- ============================================================
