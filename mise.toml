@@ -15,7 +15,7 @@ run = "nvim --headless -u scripts/minimal_init.lua -c \"lua MiniTest.run_file('{
 
 [tasks.lint]
 description = "Run luacheck"
-run = "luacheck lua/ --globals vim"
+run = "luacheck lua/ai-gitcommit --globals vim"
 
 [tasks.clean]
 description = "Remove dependencies"

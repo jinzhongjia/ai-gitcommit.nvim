@@ -6,6 +6,8 @@ local T = new_set()
 local copilot
 local tmp_dir
 local original_xdg
+local original_localappdata
+local original_userprofile
 
 ---@return string
 local function create_tmp_dir()
@@ -21,6 +23,7 @@ local function write_json_file(path, data)
 	vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
+---@return nil
 local function setup_isolated_env()
 	tmp_dir = create_tmp_dir()
 	original_xdg = vim.env.XDG_CONFIG_HOME
@@ -28,9 +31,37 @@ local function setup_isolated_env()
 	copilot.logout()
 end
 
+---@return nil
 local function teardown_isolated_env()
 	vim.env.XDG_CONFIG_HOME = original_xdg
 	original_xdg = nil
+	if tmp_dir and vim.fn.isdirectory(tmp_dir) == 1 then
+		vim.fn.delete(tmp_dir, "rf")
+	end
+	tmp_dir = nil
+	copilot.logout()
+end
+
+---@return nil
+local function setup_windows_env()
+	tmp_dir = create_tmp_dir()
+	original_xdg = vim.env.XDG_CONFIG_HOME
+	original_localappdata = vim.env.LOCALAPPDATA
+	original_userprofile = vim.env.USERPROFILE
+	vim.env.XDG_CONFIG_HOME = nil
+	vim.env.LOCALAPPDATA = vim.fs.joinpath(tmp_dir, "LocalAppData")
+	vim.env.USERPROFILE = vim.fs.joinpath(tmp_dir, "UserProfile")
+	copilot.logout()
+end
+
+---@return nil
+local function teardown_windows_env()
+	vim.env.XDG_CONFIG_HOME = original_xdg
+	vim.env.LOCALAPPDATA = original_localappdata
+	vim.env.USERPROFILE = original_userprofile
+	original_xdg = nil
+	original_localappdata = nil
+	original_userprofile = nil
 	if tmp_dir and vim.fn.isdirectory(tmp_dir) == 1 then
 		vim.fn.delete(tmp_dir, "rf")
 	end
@@ -103,6 +134,63 @@ T["is_authenticated"]["falls back to apps.json"] = function()
 	})
 
 	MiniTest.expect.equality(copilot.is_authenticated(), true)
+end
+
+T["windows_token_paths"] = new_set({
+	hooks = {
+		pre_case = setup_windows_env,
+		post_case = teardown_windows_env,
+	},
+})
+
+T["windows_token_paths"]["reads hosts.json from LOCALAPPDATA"] = function()
+	if vim.fn.has("win32") ~= 1 then
+		return
+	end
+
+	write_json_file(vim.fs.joinpath(vim.env.LOCALAPPDATA, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_localappdata" },
+	})
+
+	MiniTest.expect.equality(copilot.is_authenticated(), true)
+end
+
+T["windows_token_paths"]["falls back to USERPROFILE AppData Local"] = function()
+	if vim.fn.has("win32") ~= 1 then
+		return
+	end
+
+	vim.env.LOCALAPPDATA = nil
+	write_json_file(vim.fs.joinpath(vim.env.USERPROFILE, "AppData", "Local", "github-copilot", "apps.json"), {
+		["github.com"] = { oauth_token = "gho_userprofile" },
+	})
+
+	MiniTest.expect.equality(copilot.is_authenticated(), true)
+end
+
+T["windows_token_paths"]["queries auth.db from LOCALAPPDATA when sqlite3 is available"] = function()
+	if vim.fn.has("win32") ~= 1 or vim.fn.executable("sqlite3") == 0 then
+		return
+	end
+
+	local db_path = vim.fs.joinpath(vim.env.LOCALAPPDATA, "github-copilot", "auth.db")
+	vim.fn.mkdir(vim.fn.fnamemodify(db_path, ":h"), "p")
+	vim.fn.writefile({}, db_path)
+
+	local captured_args
+	with_system(function(args)
+		captured_args = args
+		return { stdout = "gho_sqlite\n" }
+	end, function()
+		MiniTest.expect.equality(copilot.is_authenticated(), true)
+	end)
+
+	MiniTest.expect.equality(captured_args[1], "sqlite3")
+	MiniTest.expect.equality(captured_args[2], db_path)
+	MiniTest.expect.equality(
+		captured_args[3],
+		"SELECT token_ciphertext FROM oauth_tokens WHERE auth_authority = 'github.com' LIMIT 1"
+	)
 end
 
 T["get_token"] = new_set({
