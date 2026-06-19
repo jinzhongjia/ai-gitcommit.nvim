@@ -30,12 +30,15 @@ T["get"]["throws on unsupported provider"] = function()
 	MiniTest.expect.equality(ok, false)
 end
 
-T["openai generate"] = new_set()
 
-T["openai generate"]["sends completion request with stream options"] = function()
+---@param modules string[]
+---@param fn fun()
+---@return table?, boolean, any
+local function capture_stream_request(modules, fn)
 	local original_stream = package.loaded["ai-gitcommit.stream"]
-	helpers.unload_module("ai-gitcommit.providers.openai")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
+	for _, name in ipairs(modules) do
+		helpers.unload_module(name)
+	end
 
 	local captured = nil
 	package.loaded["ai-gitcommit.stream"] = {
@@ -46,7 +49,21 @@ T["openai generate"]["sends completion request with stream options"] = function(
 		end,
 	}
 
-	local ok, err = pcall(function()
+	local ok, err = pcall(fn)
+	package.loaded["ai-gitcommit.stream"] = original_stream
+	for _, name in ipairs(modules) do
+		helpers.unload_module(name)
+	end
+
+	return captured, ok, err
+end
+T["openai generate"] = new_set()
+
+T["openai generate"]["sends completion request with stream options"] = function()
+	local captured, ok, err = capture_stream_request({
+		"ai-gitcommit.providers.openai",
+		"ai-gitcommit.providers.openai_compat",
+	}, function()
 		local openai = require("ai-gitcommit.providers.openai")
 		openai.generate("hello", {
 			model = "gpt-4o-mini",
@@ -55,10 +72,6 @@ T["openai generate"]["sends completion request with stream options"] = function(
 			api_key = "test-key",
 		}, function(_) end, function() end, function(_) end)
 	end)
-
-	package.loaded["ai-gitcommit.stream"] = original_stream
-	helpers.unload_module("ai-gitcommit.providers.openai")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)
@@ -72,20 +85,10 @@ T["openai generate"]["sends completion request with stream options"] = function(
 end
 
 T["openai generate"]["supports openai-compatible endpoints without bearer auth"] = function()
-	local original_stream = package.loaded["ai-gitcommit.stream"]
-	helpers.unload_module("ai-gitcommit.providers.openai")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
-
-	local captured = nil
-	package.loaded["ai-gitcommit.stream"] = {
-		request = function(opts, _, on_done, _)
-			captured = opts
-			on_done()
-			return { system_obj = nil }
-		end,
-	}
-
-	local ok, err = pcall(function()
+	local captured, ok, err = capture_stream_request({
+		"ai-gitcommit.providers.openai",
+		"ai-gitcommit.providers.openai_compat",
+	}, function()
 		local openai = require("ai-gitcommit.providers.openai")
 		openai.generate("hello", {
 			model = "qwen2.5-coder",
@@ -99,10 +102,6 @@ T["openai generate"]["supports openai-compatible endpoints without bearer auth"]
 			},
 		}, function(_) end, function() end, function(_) end)
 	end)
-
-	package.loaded["ai-gitcommit.stream"] = original_stream
-	helpers.unload_module("ai-gitcommit.providers.openai")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)
@@ -119,29 +118,14 @@ T["copilot generate"] = new_set()
 ---@param config table
 ---@return table captured
 local function capture_copilot_request(config)
-	local original_stream = package.loaded["ai-gitcommit.stream"]
-	helpers.unload_module("ai-gitcommit.providers.copilot")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
-	helpers.unload_module("ai-gitcommit.providers.openai_responses")
-
-	local captured = nil
-	package.loaded["ai-gitcommit.stream"] = {
-		request = function(opts, _, on_done, _)
-			captured = opts
-			on_done()
-			return { system_obj = nil }
-		end,
-	}
-
-	local copilot = require("ai-gitcommit.providers.copilot")
-	copilot.generate("hello", config, function(_) end, function() end, function(_) end)
-
-	package.loaded["ai-gitcommit.stream"] = original_stream
-	helpers.unload_module("ai-gitcommit.providers.copilot")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
-	helpers.unload_module("ai-gitcommit.providers.openai_responses")
-
-	return captured
+	return capture_stream_request({
+		"ai-gitcommit.providers.copilot",
+		"ai-gitcommit.providers.openai_compat",
+		"ai-gitcommit.providers.openai_responses",
+	}, function()
+		local copilot = require("ai-gitcommit.providers.copilot")
+		copilot.generate("hello", config, function(_) end, function() end, function(_) end)
+	end)
 end
 
 T["copilot generate"]["routes /responses endpoint through responses provider"] = function()
@@ -196,15 +180,18 @@ T["copilot resolve_credentials"] = new_set()
 ---@return table result {creds, err}
 local function resolve_with_mock_token(config, token_data)
 	helpers.unload_module("ai-gitcommit.providers.copilot")
-	helpers.unload_module("ai-gitcommit.auth")
+	helpers.unload_module("ai-gitcommit.auth.copilot")
 
-	local original_auth = package.loaded["ai-gitcommit.auth"]
-	package.loaded["ai-gitcommit.auth"] = {
-		get_token = function(_, cb)
+	local original_auth = package.loaded["ai-gitcommit.auth.copilot"]
+	package.loaded["ai-gitcommit.auth.copilot"] = {
+		get_token = function(cb)
 			cb(token_data, nil)
 		end,
-		is_authenticated = function(_)
+		is_authenticated = function()
 			return true
+		end,
+		fetch_models = function(cb)
+			cb({ { id = "gpt-4o", endpoint = "chat" } }, nil)
 		end,
 	}
 
@@ -215,7 +202,7 @@ local function resolve_with_mock_token(config, token_data)
 		result.err = err
 	end)
 
-	package.loaded["ai-gitcommit.auth"] = original_auth
+	package.loaded["ai-gitcommit.auth.copilot"] = original_auth
 	helpers.unload_module("ai-gitcommit.providers.copilot")
 
 	return result
@@ -241,20 +228,10 @@ T["copilot resolve_credentials"]["preserves user endpoint when model is pinned"]
 end
 
 T["copilot generate"]["sends completion-only headers and payload"] = function()
-	local original_stream = package.loaded["ai-gitcommit.stream"]
-	helpers.unload_module("ai-gitcommit.providers.copilot")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
-
-	local captured = nil
-	package.loaded["ai-gitcommit.stream"] = {
-		request = function(opts, _, on_done, _)
-			captured = opts
-			on_done()
-			return { system_obj = nil }
-		end,
-	}
-
-	local ok, err = pcall(function()
+	local captured, ok, err = capture_stream_request({
+		"ai-gitcommit.providers.copilot",
+		"ai-gitcommit.providers.openai_compat",
+	}, function()
 		local copilot = require("ai-gitcommit.providers.copilot")
 		copilot.generate("hello", {
 			model = "gpt-4o",
@@ -263,10 +240,6 @@ T["copilot generate"]["sends completion-only headers and payload"] = function()
 			api_key = "test-token",
 		}, function(_) end, function() end, function(_) end)
 	end)
-
-	package.loaded["ai-gitcommit.stream"] = original_stream
-	helpers.unload_module("ai-gitcommit.providers.copilot")
-	helpers.unload_module("ai-gitcommit.providers.openai_compat")
 
 	MiniTest.expect.equality(ok, true)
 	MiniTest.expect.equality(err, nil)

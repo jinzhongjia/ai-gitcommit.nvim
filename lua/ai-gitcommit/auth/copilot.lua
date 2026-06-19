@@ -1,6 +1,3 @@
-local fs = require("ai-gitcommit.util.fs")
-local http = require("ai-gitcommit.util.http")
-
 local M = {}
 
 ---@class AIGitCommit.CopilotTokenData
@@ -39,16 +36,32 @@ local _cached_copilot_token = nil
 local _token_refresh_in_progress = false
 ---@type fun(token_data?: AIGitCommit.CopilotTokenResult, err?: string)[]
 local _pending_callbacks = {}
----@type fun(github_access_token: string, callback: fun(data?: AIGitCommit.CopilotTokenResponse, err?: string))?
-local _mock_fetch_copilot_token = nil
 ---@type AIGitCommit.CopilotModelsCache?
 local _cached_models = nil
----@alias AIGitCommit.CopilotFetchModelsCb fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
----@type fun(copilot_token: string, endpoint: string, callback: AIGitCommit.CopilotFetchModelsCb)?
-local _mock_fetch_models = nil
 --- One-shot warnings already shown this session (reset by M.logout)
 ---@type table<string, boolean>
 local _warned = {}
+
+---@param path string
+---@return string?
+local function read_file(path)
+	if vim.fn.filereadable(path) ~= 1 then
+		return nil
+	end
+	return table.concat(vim.fn.readfile(path), "\n")
+end
+
+---@param args string[]
+---@param callback fun(stdout: string, code: integer)
+local function curl(args, callback)
+	local full_cmd = { "curl" }
+	vim.list_extend(full_cmd, args)
+	vim.system(full_cmd, { text = true }, function(obj)
+		vim.schedule(function()
+			callback(obj.stdout or "", obj.code)
+		end)
+	end)
+end
 
 ---@param stdout string
 ---@param fallback string
@@ -95,11 +108,8 @@ end
 ---@param github_access_token string
 ---@param callback fun(data?: AIGitCommit.CopilotTokenResponse, err?: string)
 local function fetch_copilot_token(github_access_token, callback)
-	if _mock_fetch_copilot_token then
-		return _mock_fetch_copilot_token(github_access_token, callback)
-	end
 
-	http.curl({
+	curl({
 		"-s",
 		"-X",
 		"GET",
@@ -186,7 +196,7 @@ local function read_copilot_plugin_oauth_token()
 	local files = { "hosts.json", "apps.json" }
 	for _, filename in ipairs(files) do
 		local filepath = vim.fs.joinpath(copilot_dir, filename)
-		local content = fs.read_file(filepath)
+		local content = read_file(filepath)
 		if content then
 			local ok, data = pcall(vim.json.decode, content)
 			if ok and data then
@@ -453,11 +463,8 @@ end
 ---@param endpoint string
 ---@param callback fun(entries?: AIGitCommit.CopilotModelEntry[], err?: string)
 local function request_models(copilot_token, endpoint, callback)
-	if _mock_fetch_models then
-		return _mock_fetch_models(copilot_token, endpoint, callback)
-	end
 
-	http.curl({
+	curl({
 		"-s",
 		"-X",
 		"GET",
@@ -534,45 +541,5 @@ function M.logout()
 	_warned = {}
 end
 
--- Exposed for testing only
-M._testing = {
-	find_copilot_config_path = find_copilot_config_path,
-	read_copilot_plugin_oauth_token = read_copilot_plugin_oauth_token,
-	resolve_oauth_token = resolve_oauth_token,
-	is_copilot_token_valid = is_copilot_token_valid,
-	get_valid_copilot_token = get_valid_copilot_token,
-	set_cached_oauth_token = function(token)
-		_cached_oauth_token = token
-	end,
-	set_cached_copilot_token = function(token_data)
-		_cached_copilot_token = token_data
-	end,
-	get_cached_oauth_token = function()
-		return _cached_oauth_token
-	end,
-	get_cached_copilot_token = function()
-		return _cached_copilot_token
-	end,
-	set_mock_fetch_copilot_token = function(mock_fn)
-		_mock_fetch_copilot_token = mock_fn
-	end,
-	clear_mock_fetch_copilot_token = function()
-		_mock_fetch_copilot_token = nil
-	end,
-	set_mock_fetch_models = function(mock_fn)
-		_mock_fetch_models = mock_fn
-	end,
-	clear_mock_fetch_models = function()
-		_mock_fetch_models = nil
-	end,
-	set_cached_models = function(models)
-		_cached_models = models
-	end,
-	get_cached_models = function()
-		return _cached_models
-	end,
-	parse_models_response = parse_models_response,
-	models_url_from_chat_endpoint = models_url_from_chat_endpoint,
-}
 
 return M

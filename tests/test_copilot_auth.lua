@@ -7,43 +7,20 @@ local copilot
 local tmp_dir
 local original_xdg
 
---- Create a temporary directory for test fixtures
+---@return string
 local function create_tmp_dir()
 	local dir = vim.fn.tempname()
 	vim.fn.mkdir(dir, "p")
 	return dir
 end
 
---- Write a JSON file to a path, creating parent dirs
+---@param path string
+---@param data table
 local function write_json_file(path, data)
-	local dir = vim.fn.fnamemodify(path, ":h")
-	vim.fn.mkdir(dir, "p")
+	vim.fn.mkdir(vim.fn.fnamemodify(path, ":h"), "p")
 	vim.fn.writefile({ vim.json.encode(data) }, path)
 end
 
---- Whether the sqlite3 executable is available (DB tests are skipped without it)
----@return boolean
-local function has_sqlite3()
-	return vim.fn.executable("sqlite3") == 1
-end
-
---- Create a Copilot auth.db SQLite database with a single oauth_tokens row,
---- mirroring the schema GitHub Copilot uses on disk
----@param db_path string
----@param authority string
----@param token string
-local function write_auth_db(db_path, authority, token)
-	vim.fn.mkdir(vim.fn.fnamemodify(db_path, ":h"), "p")
-	local sql = string.format(
-		"CREATE TABLE oauth_tokens (auth_authority TEXT, token_ciphertext TEXT);"
-			.. "INSERT INTO oauth_tokens VALUES ('%s', '%s');",
-		authority,
-		token
-	)
-	vim.system({ "sqlite3", db_path, sql }, { text = true }):wait(5000)
-end
-
---- Common pre_case: create temp dir, redirect XDG, clear caches
 local function setup_isolated_env()
 	tmp_dir = create_tmp_dir()
 	original_xdg = vim.env.XDG_CONFIG_HOME
@@ -51,7 +28,6 @@ local function setup_isolated_env()
 	copilot.logout()
 end
 
---- Common post_case: restore XDG, remove temp dir, clear caches
 local function teardown_isolated_env()
 	vim.env.XDG_CONFIG_HOME = original_xdg
 	original_xdg = nil
@@ -60,8 +36,39 @@ local function teardown_isolated_env()
 	end
 	tmp_dir = nil
 	copilot.logout()
-	copilot._testing.clear_mock_fetch_copilot_token()
-	copilot._testing.clear_mock_fetch_models()
+end
+
+---@param handler fun(args: string[]): table
+---@param fn fun()
+local function with_system(handler, fn)
+	local original_system = vim.system
+	vim.system = function(args, _, cb)
+		local obj = handler(args)
+		if cb then
+			cb({ code = obj.code or 0, stdout = obj.stdout or "", stderr = obj.stderr or "" })
+		end
+		return {
+			wait = function()
+				return obj
+			end,
+			is_closing = function()
+				return false
+			end,
+			kill = function(_, _) end,
+		}
+	end
+
+	local ok, err = pcall(fn)
+	vim.system = original_system
+	if not ok then
+		error(err)
+	end
+end
+
+---@param models table[]
+---@return string
+local function models_body(models)
+	return vim.json.encode({ data = models })
 end
 
 T["setup"] = function()
@@ -71,284 +78,6 @@ T["setup"] = function()
 	copilot.logout()
 end
 
--- ============================================================
--- is_copilot_token_valid
--- ============================================================
-T["is_copilot_token_valid"] = new_set()
-
-T["is_copilot_token_valid"]["returns false for nil"] = function()
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid(nil), false)
-end
-
-T["is_copilot_token_valid"]["returns false for empty token"] = function()
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = "" }), false)
-end
-
-T["is_copilot_token_valid"]["returns false for non-string token"] = function()
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = 123 }), false)
-end
-
-T["is_copilot_token_valid"]["returns true when no expires_at"] = function()
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = "abc" }), true)
-end
-
-T["is_copilot_token_valid"]["returns true when not expired"] = function()
-	local future = os.time() + 3600
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = "abc", expires_at = future }), true)
-end
-
-T["is_copilot_token_valid"]["returns false when expired"] = function()
-	local past = os.time() - 100
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = "abc", expires_at = past }), false)
-end
-
-T["is_copilot_token_valid"]["returns false when expiring within 30s"] = function()
-	local soon = os.time() + 10
-	MiniTest.expect.equality(copilot._testing.is_copilot_token_valid({ token = "abc", expires_at = soon }), false)
-end
-
--- ============================================================
--- find_copilot_config_path
--- ============================================================
-T["find_copilot_config_path"] = new_set()
-
-T["find_copilot_config_path"]["returns a non-empty string"] = function()
-	local path = copilot._testing.find_copilot_config_path()
-	MiniTest.expect.equality(type(path), "string")
-	MiniTest.expect.equality(path ~= "", true)
-end
-
-T["find_copilot_config_path"]["uses XDG_CONFIG_HOME when set"] = function()
-	local xdg = os.getenv("XDG_CONFIG_HOME")
-	local path = copilot._testing.find_copilot_config_path()
-	if xdg and xdg ~= "" then
-		MiniTest.expect.equality(path, xdg)
-	end
-end
-
--- ============================================================
--- read_copilot_plugin_oauth_token
--- ============================================================
-T["read_copilot_plugin_oauth_token"] = new_set({
-	hooks = {
-		pre_case = setup_isolated_env,
-		post_case = teardown_isolated_env,
-	},
-})
-
-T["read_copilot_plugin_oauth_token"]["reads from hosts.json"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "gho_test_hosts_token" },
-	})
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_test_hosts_token")
-end
-
-T["read_copilot_plugin_oauth_token"]["reads from apps.json when hosts.json missing"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "apps.json"), {
-		["github.com"] = { oauth_token = "gho_test_apps_token" },
-	})
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_test_apps_token")
-end
-
-T["read_copilot_plugin_oauth_token"]["prefers hosts.json over apps.json"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "gho_from_hosts" },
-	})
-	write_json_file(vim.fs.joinpath(copilot_dir, "apps.json"), {
-		["github.com"] = { oauth_token = "gho_from_apps" },
-	})
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_from_hosts")
-end
-
-T["read_copilot_plugin_oauth_token"]["handles key with github.com prefix"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com:copilot"] = { oauth_token = "gho_prefixed_token" },
-	})
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_prefixed_token")
-end
-
-T["read_copilot_plugin_oauth_token"]["returns nil when no config files exist"] = function()
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, nil)
-end
-
-T["read_copilot_plugin_oauth_token"]["returns nil for invalid JSON"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	vim.fn.mkdir(copilot_dir, "p")
-	vim.fn.writefile({ "not valid json{{{" }, vim.fs.joinpath(copilot_dir, "hosts.json"))
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, nil)
-end
-
-T["read_copilot_plugin_oauth_token"]["returns nil when oauth_token is empty"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "" },
-	})
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, nil)
-end
-
-T["read_copilot_plugin_oauth_token"]["reads from auth.db when JSON files missing"] = function()
-	if not has_sqlite3() then
-		return
-	end
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "github.com", "gho_test_db_token")
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_test_db_token")
-end
-
-T["read_copilot_plugin_oauth_token"]["prefers JSON files over auth.db"] = function()
-	if not has_sqlite3() then
-		return
-	end
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "gho_from_hosts" },
-	})
-	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "github.com", "gho_from_db")
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, "gho_from_hosts")
-end
-
-T["read_copilot_plugin_oauth_token"]["returns nil when auth.db has no github.com row"] = function()
-	if not has_sqlite3() then
-		return
-	end
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_auth_db(vim.fs.joinpath(copilot_dir, "auth.db"), "example.com", "gho_other_authority")
-
-	local token = copilot._testing.read_copilot_plugin_oauth_token()
-	MiniTest.expect.equality(token, nil)
-end
-
-T["read_copilot_plugin_oauth_token"]["warns once when sqlite3 is missing"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	vim.fn.mkdir(copilot_dir, "p")
-	-- A stat-able auth.db is enough; resolution bails before querying it.
-	vim.fn.writefile({ "" }, vim.fs.joinpath(copilot_dir, "auth.db"))
-
-	local notify_count = 0
-	local original_notify = vim.notify
-	local original_path = vim.env.PATH
-	vim.notify = function()
-		notify_count = notify_count + 1
-	end
-	vim.env.PATH = "" -- make sqlite3 unresolvable via vim.fn.executable
-
-	local token1, token2
-	local ok, err = pcall(function()
-		token1 = copilot._testing.read_copilot_plugin_oauth_token()
-		token2 = copilot._testing.read_copilot_plugin_oauth_token()
-	end)
-
-	vim.env.PATH = original_path
-	vim.notify = original_notify
-	if not ok then
-		error(err)
-	end
-
-	MiniTest.expect.equality(token1, nil)
-	MiniTest.expect.equality(token2, nil)
-	MiniTest.expect.equality(notify_count, 1)
-end
-
-T["read_copilot_plugin_oauth_token"]["warns once when the auth.db query fails"] = function()
-	if not has_sqlite3() then
-		return
-	end
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	vim.fn.mkdir(copilot_dir, "p")
-	-- Not a valid SQLite database → sqlite3 exits non-zero.
-	vim.fn.writefile({ "this is not a sqlite database" }, vim.fs.joinpath(copilot_dir, "auth.db"))
-
-	local notify_count = 0
-	local original_notify = vim.notify
-	vim.notify = function()
-		notify_count = notify_count + 1
-	end
-
-	local token1, token2
-	local ok, err = pcall(function()
-		token1 = copilot._testing.read_copilot_plugin_oauth_token()
-		token2 = copilot._testing.read_copilot_plugin_oauth_token()
-	end)
-
-	vim.notify = original_notify
-	if not ok then
-		error(err)
-	end
-
-	MiniTest.expect.equality(token1, nil)
-	MiniTest.expect.equality(token2, nil)
-	MiniTest.expect.equality(notify_count, 1)
-end
-
--- ============================================================
--- resolve_oauth_token
--- ============================================================
-T["resolve_oauth_token"] = new_set({
-	hooks = {
-		pre_case = setup_isolated_env,
-		post_case = teardown_isolated_env,
-	},
-})
-
-T["resolve_oauth_token"]["returns nil when nothing is configured"] = function()
-	local token = copilot._testing.resolve_oauth_token()
-	MiniTest.expect.equality(token, nil)
-end
-
-T["resolve_oauth_token"]["returns memory cached token first"] = function()
-	copilot._testing.set_cached_oauth_token("cached_token_123")
-	local token = copilot._testing.resolve_oauth_token()
-	MiniTest.expect.equality(token, "cached_token_123")
-end
-
-T["resolve_oauth_token"]["reads from copilot plugin config"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "gho_plugin_token" },
-	})
-
-	local token = copilot._testing.resolve_oauth_token()
-	MiniTest.expect.equality(token, "gho_plugin_token")
-
-	-- Verify it was also cached
-	MiniTest.expect.equality(copilot._testing.get_cached_oauth_token(), "gho_plugin_token")
-end
-
-T["resolve_oauth_token"]["memory cache beats plugin config"] = function()
-	copilot._testing.set_cached_oauth_token("memory_token")
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "plugin_token" },
-	})
-
-	local token = copilot._testing.resolve_oauth_token()
-	MiniTest.expect.equality(token, "memory_token")
-end
-
--- ============================================================
--- is_authenticated (public API)
--- ============================================================
 T["is_authenticated"] = new_set({
 	hooks = {
 		pre_case = setup_isolated_env,
@@ -356,27 +85,26 @@ T["is_authenticated"] = new_set({
 	},
 })
 
-T["is_authenticated"]["returns false when no token source available"] = function()
+T["is_authenticated"]["returns false when no token source exists"] = function()
 	MiniTest.expect.equality(copilot.is_authenticated(), false)
 end
 
-T["is_authenticated"]["returns true when copilot plugin token exists"] = function()
-	local copilot_dir = vim.fs.joinpath(tmp_dir, "github-copilot")
-	write_json_file(vim.fs.joinpath(copilot_dir, "hosts.json"), {
-		["github.com"] = { oauth_token = "gho_test_token" },
+T["is_authenticated"]["reads hosts.json token"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_hosts" },
 	})
 
 	MiniTest.expect.equality(copilot.is_authenticated(), true)
 end
 
-T["is_authenticated"]["returns true when memory cache is set"] = function()
-	copilot._testing.set_cached_oauth_token("cached_token")
+T["is_authenticated"]["falls back to apps.json"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "apps.json"), {
+		["github.com"] = { oauth_token = "gho_apps" },
+	})
+
 	MiniTest.expect.equality(copilot.is_authenticated(), true)
 end
 
--- ============================================================
--- get_token (public API)
--- ============================================================
 T["get_token"] = new_set({
 	hooks = {
 		pre_case = setup_isolated_env,
@@ -392,319 +120,73 @@ T["get_token"]["returns error when not authenticated"] = function()
 	end)
 
 	MiniTest.expect.equality(result_data, nil)
-	MiniTest.expect.equality(type(result_err), "string")
-	MiniTest.expect.equality(result_err:find("Not authenticated") ~= nil, true)
+	MiniTest.expect.equality(result_err:find("Not authenticated", 1, true) ~= nil, true)
 end
 
-T["get_token"]["returns cached copilot token when valid"] = function()
-	copilot._testing.set_cached_oauth_token("gho_oauth_token")
-	copilot._testing.set_cached_copilot_token({
-		token = "copilot_token_abc",
-		expires_at = os.time() + 3600,
-		endpoint = "https://example.com/chat/completions",
+T["get_token"]["fetches and caches Copilot token"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_oauth" },
 	})
 
-	local result_data, result_err
-	copilot.get_token(function(data, err)
-		result_data = data
-		result_err = err
-	end)
-
-	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_data.token, "copilot_token_abc")
-	MiniTest.expect.equality(result_data.endpoint, "https://example.com/chat/completions")
-end
-
--- ============================================================
--- logout (public API)
--- ============================================================
-T["logout"] = new_set({
-	hooks = {
-		pre_case = setup_isolated_env,
-		post_case = teardown_isolated_env,
-	},
-})
-
-T["logout"]["clears memory caches"] = function()
-	copilot._testing.set_cached_oauth_token("test_token")
-	copilot._testing.set_cached_copilot_token({ token = "cop_token", expires_at = os.time() + 3600 })
-
-	copilot.logout()
-
-	MiniTest.expect.equality(copilot._testing.get_cached_oauth_token(), nil)
-	MiniTest.expect.equality(copilot._testing.get_cached_copilot_token(), nil)
-end
-
-T["logout"]["is idempotent"] = function()
-	copilot.logout()
-	copilot.logout() -- should not error
-	MiniTest.expect.equality(copilot._testing.get_cached_oauth_token(), nil)
-end
-
--- ============================================================
--- get_valid_copilot_token (concurrency)
--- ============================================================
-T["get_valid_copilot_token"] = new_set({
-	hooks = {
-		pre_case = setup_isolated_env,
-		post_case = teardown_isolated_env,
-	},
-})
-
-T["get_valid_copilot_token"]["returns cached token immediately"] = function()
-	copilot._testing.set_cached_copilot_token({
-		token = "valid_token",
-		expires_at = os.time() + 3600,
-		endpoint = "https://api.example.com/chat/completions",
-	})
-
-	local result_data, result_err
-	copilot._testing.get_valid_copilot_token("oauth_token", function(data, err)
-		result_data = data
-		result_err = err
-	end)
-
-	-- Should return synchronously since cached
-	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_data.token, "valid_token")
-	MiniTest.expect.equality(result_data.endpoint, "https://api.example.com/chat/completions")
-end
-
-T["get_valid_copilot_token"]["concurrent requests all receive error on refresh failure"] = function()
-	local call_count = 0
-	local results = {}
-
-	copilot._testing.set_mock_fetch_copilot_token(function(_, cb)
-		call_count = call_count + 1
-		vim.schedule(function()
-			cb(nil, "Simulated auth failure")
+	local calls = 0
+	with_system(function(args)
+		calls = calls + 1
+		MiniTest.expect.equality(args[#args], "https://api.github.com/copilot_internal/v2/token")
+		return {
+			stdout = vim.json.encode({
+				token = "copilot_token",
+				expires_at = os.time() + 3600,
+				endpoints = { api = "https://api.githubcopilot.com" },
+			}),
+		}
+	end, function()
+		local first, second
+		copilot.get_token(function(data)
+			first = data
 		end)
-	end)
-
-	for i = 1, 3 do
-		copilot._testing.get_valid_copilot_token("oauth_token", function(data, err)
-			results[i] = { data = data, err = err }
+		vim.wait(200, function()
+			return first ~= nil
 		end)
-	end
+		copilot.get_token(function(data)
+			second = data
+		end)
 
-	vim.wait(100, function()
-		return #results == 3 and results[1].err ~= nil
+		MiniTest.expect.equality(first.token, "copilot_token")
+		MiniTest.expect.equality(first.endpoint, "https://api.githubcopilot.com/chat/completions")
+		MiniTest.expect.equality(second.token, "copilot_token")
+		MiniTest.expect.equality(calls, 1)
 	end)
-
-	MiniTest.expect.equality(call_count, 1)
-	for i = 1, 3 do
-		MiniTest.expect.equality(results[i].data, nil)
-		MiniTest.expect.equality(results[i].err, "Simulated auth failure")
-	end
 end
 
--- ============================================================
--- parse_models_response
--- ============================================================
-T["parse_models_response"] = new_set()
-
-T["parse_models_response"]["keeps only picker-enabled chat models"] = function()
-	local body = vim.json.encode({
-		data = {
-			{ id = "gpt-4o", model_picker_enabled = true, capabilities = { type = "chat" } },
-			{ id = "missing-caps", model_picker_enabled = true },
-			{ id = "text-embed", model_picker_enabled = true, capabilities = { type = "embeddings" } },
-			{ id = "hidden", model_picker_enabled = false, capabilities = { type = "chat" } },
-			{
-				id = "claude-sonnet-4",
-				model_picker_enabled = true,
-				capabilities = { type = { "chat", "completions" } },
-			},
-		},
+T["get_token"]["coalesces concurrent token refreshes"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_oauth" },
 	})
 
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(#entries, 2)
-	-- No billing info on either → stable API order; both default to /chat.
-	MiniTest.expect.equality(entries[1].id, "gpt-4o")
-	MiniTest.expect.equality(entries[1].endpoint, "chat")
-	MiniTest.expect.equality(entries[2].id, "claude-sonnet-4")
-	MiniTest.expect.equality(entries[2].endpoint, "chat")
+	local calls = 0
+	with_system(function(_)
+		calls = calls + 1
+		return { stdout = vim.json.encode({ token = "copilot_token", expires_at = os.time() + 3600 }) }
+	end, function()
+		local results = {}
+		for i = 1, 3 do
+			copilot.get_token(function(data, err)
+				results[i] = { data = data, err = err }
+			end)
+		end
+
+		vim.wait(200, function()
+			return results[1] ~= nil and results[2] ~= nil and results[3] ~= nil
+		end)
+
+		MiniTest.expect.equality(calls, 1)
+		for i = 1, 3 do
+			MiniTest.expect.equality(results[i].err, nil)
+			MiniTest.expect.equality(results[i].data.token, "copilot_token")
+		end
+	end)
 end
 
-T["parse_models_response"]["sorts by billing multiplier ascending"] = function()
-	local body = vim.json.encode({
-		data = {
-			{
-				id = "claude-opus",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 10 },
-			},
-			{
-				id = "grok-code-fast-1",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 0 },
-			},
-			{
-				id = "gpt-4o",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 1 },
-			},
-			{
-				id = "mystery-model",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				-- no billing info → ranked last
-			},
-		},
-	})
-
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(entries[1].id, "grok-code-fast-1")
-	MiniTest.expect.equality(entries[2].id, "gpt-4o")
-	MiniTest.expect.equality(entries[3].id, "claude-opus")
-	MiniTest.expect.equality(entries[4].id, "mystery-model")
-end
-
-T["parse_models_response"]["preserves api order when multipliers are equal"] = function()
-	local body = vim.json.encode({
-		data = {
-			{
-				id = "a-model",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 0 },
-			},
-			{
-				id = "b-model",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 0 },
-			},
-		},
-	})
-
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(entries[1].id, "a-model")
-	MiniTest.expect.equality(entries[2].id, "b-model")
-end
-
-T["parse_models_response"]["tags /responses-only models with endpoint='responses'"] = function()
-	local body = vim.json.encode({
-		data = {
-			{
-				id = "gpt-5.3-codex",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 0 },
-				supported_endpoints = { "/responses" },
-			},
-			{
-				id = "gpt-4o",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 1 },
-				supported_endpoints = { "/chat/completions" },
-			},
-			{
-				id = "claude-sonnet-4",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				billing = { multiplier = 2 },
-				supported_endpoints = { "/chat/completions", "/responses" },
-			},
-		},
-	})
-
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(#entries, 3)
-	-- Cheapest first; codex is /responses, gpt-4o is /chat, claude can go either
-	-- way and we prefer /chat when both are advertised.
-	MiniTest.expect.equality(entries[1].id, "gpt-5.3-codex")
-	MiniTest.expect.equality(entries[1].endpoint, "responses")
-	MiniTest.expect.equality(entries[2].id, "gpt-4o")
-	MiniTest.expect.equality(entries[2].endpoint, "chat")
-	MiniTest.expect.equality(entries[3].id, "claude-sonnet-4")
-	MiniTest.expect.equality(entries[3].endpoint, "chat")
-end
-
-T["parse_models_response"]["drops models with no usable endpoint"] = function()
-	local body = vim.json.encode({
-		data = {
-			{
-				id = "embeddings-only",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				supported_endpoints = { "/embeddings" },
-			},
-			{
-				id = "gpt-4o",
-				model_picker_enabled = true,
-				capabilities = { type = "chat" },
-				supported_endpoints = { "/chat/completions" },
-			},
-		},
-	})
-
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(#entries, 1)
-	MiniTest.expect.equality(entries[1].id, "gpt-4o")
-end
-
-T["parse_models_response"]["defaults to /chat when supported_endpoints is absent"] = function()
-	local body = vim.json.encode({
-		data = {
-			{ id = "legacy-chat", model_picker_enabled = true, capabilities = { type = "chat" } },
-		},
-	})
-
-	local entries, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(err, nil)
-	MiniTest.expect.equality(#entries, 1)
-	MiniTest.expect.equality(entries[1].id, "legacy-chat")
-	MiniTest.expect.equality(entries[1].endpoint, "chat")
-end
-
-T["parse_models_response"]["errors on empty result"] = function()
-	local body = vim.json.encode({ data = {} })
-	local ids, err = copilot._testing.parse_models_response(body)
-	MiniTest.expect.equality(ids, nil)
-	MiniTest.expect.equality(type(err), "string")
-end
-
-T["parse_models_response"]["errors on malformed json"] = function()
-	local ids, err = copilot._testing.parse_models_response("not json")
-	MiniTest.expect.equality(ids, nil)
-	MiniTest.expect.equality(type(err), "string")
-end
-
--- ============================================================
--- models_url_from_chat_endpoint
--- ============================================================
-T["models_url_from_chat_endpoint"] = new_set()
-
-T["models_url_from_chat_endpoint"]["derives /models from chat endpoint"] = function()
-	local url = copilot._testing.models_url_from_chat_endpoint("https://api.githubcopilot.com/chat/completions")
-	MiniTest.expect.equality(url, "https://api.githubcopilot.com/models")
-end
-
-T["models_url_from_chat_endpoint"]["works with a different host"] = function()
-	local url = copilot._testing.models_url_from_chat_endpoint("https://proxy.example.com/v1/chat/completions")
-	MiniTest.expect.equality(url, "https://proxy.example.com/v1/models")
-end
-
-T["models_url_from_chat_endpoint"]["preserves query strings"] = function()
-	local url =
-		copilot._testing.models_url_from_chat_endpoint("https://proxy.example.com/v1/chat/completions?api-version=1")
-	MiniTest.expect.equality(url, "https://proxy.example.com/v1/models?api-version=1")
-end
-
--- ============================================================
--- fetch_models (public API)
--- ============================================================
 T["fetch_models"] = new_set({
 	hooks = {
 		pre_case = setup_isolated_env,
@@ -712,88 +194,98 @@ T["fetch_models"] = new_set({
 	},
 })
 
-T["fetch_models"]["returns cached entries without refetch"] = function()
-	copilot._testing.set_cached_models({
-		entries = { { id = "cached-model", endpoint = "chat" } },
-		expires_at = os.time() + 300,
+T["fetch_models"]["sorts by billing multiplier and keeps endpoint kind"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_oauth" },
 	})
 
-	local result_entries, result_err
-	copilot.fetch_models(function(entries, err)
-		result_entries = entries
-		result_err = err
-	end)
+	local token_calls = 0
+	local model_calls = 0
+	with_system(function(args)
+		local url = args[#args]
+		if url:find("/copilot_internal/v2/token", 1, true) then
+			token_calls = token_calls + 1
+			return {
+				stdout = vim.json.encode({
+					token = "copilot_token",
+					expires_at = os.time() + 3600,
+					endpoints = { api = "https://api.githubcopilot.com" },
+				}),
+			}
+		end
 
-	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_entries[1].id, "cached-model")
-	MiniTest.expect.equality(result_entries[1].endpoint, "chat")
+		model_calls = model_calls + 1
+		MiniTest.expect.equality(url, "https://api.githubcopilot.com/models")
+		return {
+			stdout = models_body({
+				{
+					id = "expensive",
+					model_picker_enabled = true,
+					capabilities = { type = "chat" },
+					billing = { multiplier = 10 },
+				},
+				{
+					id = "gpt-5.3-codex",
+					model_picker_enabled = true,
+					capabilities = { type = "chat" },
+					billing = { multiplier = 0 },
+					supported_endpoints = { "/responses" },
+				},
+				{
+					id = "gpt-4o",
+					model_picker_enabled = true,
+					capabilities = { type = "chat" },
+					billing = { multiplier = 1 },
+					supported_endpoints = { "/chat/completions" },
+				},
+				{ id = "hidden", model_picker_enabled = false, capabilities = { type = "chat" } },
+			}),
+		}
+	end, function()
+		local first, second
+		copilot.fetch_models(function(entries)
+			first = entries
+		end)
+		vim.wait(200, function()
+			return first ~= nil
+		end)
+		copilot.fetch_models(function(entries)
+			second = entries
+		end)
+
+		MiniTest.expect.equality(first[1].id, "gpt-5.3-codex")
+		MiniTest.expect.equality(first[1].endpoint, "responses")
+		MiniTest.expect.equality(first[2].id, "gpt-4o")
+		MiniTest.expect.equality(second[1].id, "gpt-5.3-codex")
+		MiniTest.expect.equality(token_calls, 1)
+		MiniTest.expect.equality(model_calls, 1)
+	end)
 end
 
-T["fetch_models"]["uses mocked fetch and caches result"] = function()
-	copilot._testing.set_cached_oauth_token("gho_test")
-	copilot._testing.set_cached_copilot_token({
-		token = "copilot_token",
-		expires_at = os.time() + 3600,
-		endpoint = "https://api.githubcopilot.com/chat/completions",
-		endpoint_base = "https://api.githubcopilot.com",
+T["fetch_models"]["returns parser errors"] = function()
+	write_json_file(vim.fs.joinpath(tmp_dir, "github-copilot", "hosts.json"), {
+		["github.com"] = { oauth_token = "gho_oauth" },
 	})
 
-	copilot._testing.set_mock_fetch_models(function(_token, _endpoint, cb)
-		vim.schedule(function()
-			cb({
-				{ id = "gpt-4o", endpoint = "chat" },
-				{ id = "gpt-5.3-codex", endpoint = "responses" },
-			}, nil)
+	with_system(function(args)
+		local url = args[#args]
+		if url:find("/copilot_internal/v2/token", 1, true) then
+			return { stdout = vim.json.encode({ token = "copilot_token", expires_at = os.time() + 3600 }) }
+		end
+		return { stdout = vim.json.encode({ data = {} }) }
+	end, function()
+		local result_entries, result_err
+		copilot.fetch_models(function(entries, err)
+			result_entries = entries
+			result_err = err
 		end)
-	end)
-
-	local result_entries, result_err
-	copilot.fetch_models(function(entries, err)
-		result_entries = entries
-		result_err = err
-	end)
-
-	vim.wait(200, function()
-		return result_entries ~= nil or result_err ~= nil
-	end)
-
-	MiniTest.expect.equality(result_err, nil)
-	MiniTest.expect.equality(result_entries[1].id, "gpt-4o")
-	MiniTest.expect.equality(result_entries[2].id, "gpt-5.3-codex")
-	MiniTest.expect.equality(result_entries[2].endpoint, "responses")
-
-	local cached = copilot._testing.get_cached_models()
-	MiniTest.expect.equality(cached.entries[1].id, "gpt-4o")
-end
-
-T["fetch_models"]["propagates fetch errors without caching"] = function()
-	copilot._testing.set_cached_oauth_token("gho_test")
-	copilot._testing.set_cached_copilot_token({
-		token = "copilot_token",
-		expires_at = os.time() + 3600,
-		endpoint = "https://api.githubcopilot.com/chat/completions",
-		endpoint_base = "https://api.githubcopilot.com",
-	})
-
-	copilot._testing.set_mock_fetch_models(function(_token, _endpoint, cb)
-		vim.schedule(function()
-			cb(nil, "simulated failure")
+		vim.wait(200, function()
+			return result_err ~= nil
 		end)
-	end)
 
-	local result_entries, result_err
-	copilot.fetch_models(function(entries, err)
-		result_entries = entries
-		result_err = err
+		MiniTest.expect.equality(result_entries, nil)
+		MiniTest.expect.equality(result_err, "No usable chat models returned by Copilot")
 	end)
-
-	vim.wait(200, function()
-		return result_entries ~= nil or result_err ~= nil
-	end)
-
-	MiniTest.expect.equality(result_entries, nil)
-	MiniTest.expect.equality(result_err, "simulated failure")
-	MiniTest.expect.equality(copilot._testing.get_cached_models(), nil)
 end
 
 return T

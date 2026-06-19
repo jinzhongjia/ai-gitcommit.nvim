@@ -109,8 +109,8 @@ local function with_generator_mocks(overrides, callback)
 			return {
 				languages = overrides.languages or { "English" },
 				prompt_template = nil,
-				context = { max_diff_lines = 500, max_diff_chars = 15000 },
-				filter = { exclude_patterns = {}, exclude_paths = {}, include_only = nil },
+				context = { max_diff_chars = 15000 },
+				filter = { exclude_patterns = {}, include_only = nil },
 			}
 		end,
 	}

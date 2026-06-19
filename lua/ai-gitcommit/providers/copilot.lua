@@ -75,8 +75,8 @@ end
 ---@param _ AIGitCommit.ProviderConfig
 ---@return boolean
 function M.has_credentials(_)
-	local auth = require("ai-gitcommit.auth")
-	return auth.is_authenticated("copilot")
+	local auth = require("ai-gitcommit.auth.copilot")
+	return auth.is_authenticated()
 end
 
 ---@param config AIGitCommit.ProviderConfig
@@ -114,8 +114,8 @@ end
 ---@param config AIGitCommit.ProviderConfig
 ---@param callback fun(creds?: AIGitCommit.Credentials, err?: string)
 function M.resolve_credentials(config, callback)
-	local auth = require("ai-gitcommit.auth")
-	auth.get_token("copilot", function(token_data, err)
+	local auth = require("ai-gitcommit.auth.copilot")
+	auth.get_token(function(token_data, err)
 		if err then
 			callback(nil, "Auth error: " .. err)
 			return
@@ -134,8 +134,7 @@ function M.resolve_credentials(config, callback)
 
 		-- Otherwise resolve a default from Copilot's /models endpoint and
 		-- route to the matching transport.
-		local copilot_auth = require("ai-gitcommit.auth.copilot")
-		copilot_auth.fetch_models(function(entries, models_err)
+		auth.fetch_models(function(entries, models_err)
 			if models_err then
 				callback(nil, "Failed to resolve Copilot model: " .. models_err)
 				return

@@ -11,12 +11,10 @@ function M.get_test_config(opts)
 		languages = { "English" },
 		prompt_template = nil,
 		context = {
-			max_diff_lines = 500,
 			max_diff_chars = 15000,
 		},
 		filter = {
 			exclude_patterns = {},
-			exclude_paths = {},
 		},
 		keymap = nil,
 	}, opts or {})
@@ -43,25 +41,6 @@ index abc1234..def5678 100644
 ]]
 end
 
----@return string[]
-function M.get_sample_files()
-	return { "src/main.lua" }
-end
-
----@return string
-function M.get_large_diff()
-	local lines = {}
-	for i = 1, 1000 do
-		table.insert(lines, string.format("+line %d added", i))
-	end
-	return table.concat(lines, "\n")
-end
-
----@param bufnr integer
----@return string[]
-function M.get_buffer_lines(bufnr)
-	return vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-end
 
 ---@return integer
 function M.create_gitcommit_buffer()

@@ -15,12 +15,10 @@
 ---@field model? string
 
 ---@class AIGitCommit.ContextConfig
----@field max_diff_lines? number
 ---@field max_diff_chars? number
 
 ---@class AIGitCommit.FilterConfig
 ---@field exclude_patterns? string[]
----@field exclude_paths? string[]
 ---@field include_only? string[]
 
 ---@class AIGitCommit.AutoConfig
@@ -76,7 +74,6 @@ local defaults = {
 	prompt_template = nil,
 
 	context = {
-		max_diff_lines = 500,
 		max_diff_chars = 15000,
 	},
 
@@ -101,7 +98,6 @@ local defaults = {
 			"%.connect%.go$",
 			"_connect%.ts$",
 		},
-		exclude_paths = {},
 		include_only = nil,
 	},
 

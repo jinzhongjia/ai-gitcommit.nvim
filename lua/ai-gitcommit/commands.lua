@@ -1,4 +1,4 @@
-local auth = require("ai-gitcommit.auth")
+local copilot_auth = require("ai-gitcommit.auth.copilot")
 local config = require("ai-gitcommit.config")
 local generator = require("ai-gitcommit.generator")
 local providers = require("ai-gitcommit.providers")
@@ -8,12 +8,6 @@ local M = {}
 local subcommands = { "logout", "status" }
 local provider_names = { "openai", "copilot" }
 
----@param value string
----@param prefix string
----@return boolean
-local function starts_with(value, prefix)
-	return value:find(prefix, 1, true) == 1
-end
 
 ---@param args string
 ---@return string?, string?
@@ -47,7 +41,14 @@ local function do_logout(provider)
 		return
 	end
 
-	local ok, err = auth.logout(provider)
+	local ok, err
+	if provider == "copilot" then
+		copilot_auth.logout()
+		ok = true
+	else
+		ok = false
+		err = "Provider has no auth module: " .. provider
+	end
 	if not ok then
 		vim.notify("Logout failed: " .. (err or "unknown"), vim.log.levels.ERROR)
 		return
@@ -89,7 +90,7 @@ local function complete(_, line)
 
 		local matches = {}
 		for _, sub in ipairs(subcommands) do
-			if starts_with(sub, parts[2]) then
+			if vim.startswith(sub, parts[2]) then
 				table.insert(matches, sub)
 			end
 		end
@@ -101,7 +102,7 @@ local function complete(_, line)
 
 		local matches = {}
 		for _, name in ipairs(provider_names) do
-			if starts_with(name, parts[3]) then
+			if vim.startswith(name, parts[3]) then
 				table.insert(matches, name)
 			end
 		end

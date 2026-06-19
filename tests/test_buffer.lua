@@ -132,22 +132,5 @@ T["is_amend_message_buffer"]["returns false without amend metadata"] = function(
 	vim.fn.delete(editmsg)
 end
 
-T["set_commit_message"] = new_set()
-
-T["set_commit_message"]["sets message before comments"] = function()
-	local bufnr = vim.api.nvim_create_buf(false, true)
-	vim.api.nvim_set_current_buf(bufnr)
-	vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {
-		"# Comment line",
-	})
-
-	buffer.set_commit_message("feat: new feature", bufnr)
-
-	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
-	MiniTest.expect.equality(lines[1], "feat: new feature")
-	MiniTest.expect.equality(lines[3], "# Comment line")
-
-	helpers.cleanup_buffer(bufnr)
-end
 
 return T

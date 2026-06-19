@@ -9,26 +9,6 @@ local M = {}
 ---@type table<integer, AIGitCommit.BufferState>
 local states = {}
 
----@param timer userdata?
-local function stop_timer(timer)
-	if not timer then
-		return
-	end
-
-	pcall(function()
-		timer:stop()
-		timer:close()
-	end)
-end
-
----@param stream_handle AIGitCommit.StreamHandle?
-local function cancel_stream(stream_handle)
-	if not stream_handle then
-		return
-	end
-
-	require("ai-gitcommit.stream").cancel(stream_handle)
-end
 
 ---@param bufnr integer
 ---@return AIGitCommit.BufferState
@@ -51,7 +31,12 @@ function M.stop_timer(bufnr)
 		return
 	end
 
-	stop_timer(s.timer)
+	if s.timer then
+		pcall(function()
+			s.timer:stop()
+			s.timer:close()
+		end)
+	end
 	s.timer = nil
 end
 
@@ -63,7 +48,9 @@ function M.cancel_stream(bufnr)
 		return
 	end
 
-	cancel_stream(s.stream_handle)
+	if s.stream_handle then
+		require("ai-gitcommit.stream").cancel(s.stream_handle)
+	end
 	s.stream_handle = nil
 	s.generating = false
 end

@@ -3,16 +3,6 @@ local M = {}
 ---@class AIGitCommit.GitCommandOpts
 ---@field bufnr? integer
 
----@param bufnr_or_callback? integer|function
----@param callback? function
----@return integer?, function
-local function normalize_args(bufnr_or_callback, callback)
-	if type(bufnr_or_callback) == "function" then
-		return nil, bufnr_or_callback
-	end
-
-	return bufnr_or_callback, callback
-end
 
 ---@param cmd string[]
 ---@param opts? AIGitCommit.GitCommandOpts
@@ -96,11 +86,9 @@ local function parse_name_status(stdout)
 	return files
 end
 
----@param bufnr_or_callback? integer|fun(diff: string, err: string?)
+---@param bufnr integer?
 ---@param callback fun(diff: string, err: string?)
-function M.get_staged_diff(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
+function M.get_staged_diff(bufnr, callback)
 	run_git({ "diff", "--cached" }, { bufnr = bufnr }, function(stdout, code, stderr)
 		if code ~= 0 then
 			callback("", build_git_error(stdout, stderr, "Failed to get staged diff"))
@@ -111,11 +99,9 @@ function M.get_staged_diff(bufnr_or_callback, callback)
 	end)
 end
 
----@param bufnr_or_callback? integer|fun(diff: string, err: string?)
+---@param bufnr integer?
 ---@param callback fun(diff: string, err: string?)
-function M.get_head_diff(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
+function M.get_head_diff(bufnr, callback)
 	run_git({ "show", "--format=", "--no-ext-diff", "HEAD" }, { bufnr = bufnr }, function(stdout, code, stderr)
 		if code ~= 0 then
 			callback("", build_git_error(stdout, stderr, "Failed to get HEAD diff"))
@@ -132,11 +118,9 @@ end
 ---@field old_file? string
 ---@field new_file? string
 
----@param bufnr_or_callback? integer|fun(files: AIGitCommit.StagedFile[], err: string?)
+---@param bufnr integer?
 ---@param callback fun(files: AIGitCommit.StagedFile[], err: string?)
-function M.get_staged_files(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
+function M.get_staged_files(bufnr, callback)
 	run_git({ "diff", "--cached", "--name-status", "-z" }, { bufnr = bufnr }, function(stdout, code, stderr)
 		if code ~= 0 then
 			callback({}, build_git_error(stdout, stderr, "Failed to get staged files"))
@@ -147,11 +131,9 @@ function M.get_staged_files(bufnr_or_callback, callback)
 	end)
 end
 
----@param bufnr_or_callback? integer|fun(files: AIGitCommit.StagedFile[], err: string?)
+---@param bufnr integer?
 ---@param callback fun(files: AIGitCommit.StagedFile[], err: string?)
-function M.get_head_files(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
+function M.get_head_files(bufnr, callback)
 	run_git(
 		{ "diff-tree", "--no-commit-id", "--name-status", "-z", "-r", "--root", "HEAD" },
 		{ bufnr = bufnr },
@@ -166,28 +148,5 @@ function M.get_head_files(bufnr_or_callback, callback)
 	)
 end
 
----@param bufnr_or_callback? integer|fun(is_repo: boolean)
----@param callback fun(is_repo: boolean)
-function M.is_git_repo(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
-	run_git({ "rev-parse", "--git-dir" }, { bufnr = bufnr }, function(_, code)
-		callback(code == 0)
-	end)
-end
-
----@param bufnr_or_callback? integer|fun(root: string?)
----@param callback fun(root: string?)
-function M.get_repo_root(bufnr_or_callback, callback)
-	local bufnr
-	bufnr, callback = normalize_args(bufnr_or_callback, callback)
-	run_git({ "rev-parse", "--show-toplevel" }, { bufnr = bufnr }, function(stdout, code)
-		if code == 0 and stdout ~= "" then
-			callback(vim.trim(stdout))
-		else
-			callback(nil)
-		end
-	end)
-end
 
 return M

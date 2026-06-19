@@ -51,61 +51,22 @@ Supported providers:
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "copilot", -- "openai" | "copilot" (default: "copilot")
+  provider = "copilot", -- default
+  -- Full option reference: :h ai-gitcommit-config
+})
+```
 
+OpenAI:
+
+```lua
+require("ai-gitcommit").setup({
+  provider = "openai",
   providers = {
     openai = {
       api_key = vim.env.OPENAI_API_KEY,
-      api_key_required = true,
-      api_key_header = "Authorization",
-      api_key_prefix = "Bearer ",
-      extra_headers = {},
-      stream_options = true,
       model = "gpt-4o-mini",
       endpoint = "https://api.openai.com/v1/chat/completions",
-      max_tokens = 500,
     },
-
-    copilot = {
-      -- model = nil → auto-select cheapest available via /models
-      -- set a string to pin, e.g. "gpt-4o" or "claude-sonnet-4"
-      model = nil,
-      endpoint = "https://api.githubcopilot.com/chat/completions",
-      max_tokens = 500,
-    },
-  },
-
-  languages = { "English", "Chinese", "Japanese", "Korean" },
-  prompt_template = nil, -- string or function(default_prompt) -> string
-  keymap = nil,
-  context = {
-    max_diff_lines = 500,
-    max_diff_chars = 15000,
-  },
-  filter = {
-    exclude_patterns = {
-      "%.lock$",
-      "package%-lock%.json$",
-      "yarn%.lock$",
-      "pnpm%-lock%.yaml$",
-      "%.min%.[jc]ss?$",
-      "%.map$",
-      "%.pb%.go$",
-      "_grpc%.pb%.go$",
-      "%.pb%.cc$",
-      "%.pb%.h$",
-      "_pb2%.py$",
-      "_pb2_grpc%.py$",
-      "%.gen%.go$",
-      "%.connect%.go$",
-      "_connect%.ts$",
-    },
-    exclude_paths = {},
-    include_only = nil,
-  },
-  auto = {
-    enabled = true,
-    debounce_ms = 450,
   },
 })
 ```
@@ -188,11 +149,10 @@ Output only the commit message, no explanation.
 
 ## Diff context behavior
 
-- `filter.exclude_patterns` — remove files by filename pattern
-- `filter.exclude_paths` — remove files by path pattern
+- `filter.exclude_patterns` — remove files by Lua path pattern
 - `filter.include_only` — when non-empty, keep only matching files
 - The same filters apply to both diff context and the `Staged files` list in the prompt
-- Context is truncated by `context.max_diff_lines`, then `context.max_diff_chars`
+- Context is truncated by `context.max_diff_chars`
 - Default excludes cover common lockfiles, sourcemaps/minified assets, and generated protobuf / GORM gen / Connect RPC outputs
 
 ## Generation behavior

@@ -74,7 +74,6 @@ Full setup: >
     prompt_template = nil, -- string or function(default_prompt) -> string
 
     context = {
-      max_diff_lines = 500,
       max_diff_chars = 15000,
     },
 
@@ -96,7 +95,6 @@ Full setup: >
         "%.connect%.go$",
         "_connect%.ts$",
       },
-      exclude_paths = {}, -- path rules (Lua patterns)
       include_only = nil, -- only include matching paths
     },
 
@@ -119,11 +117,9 @@ Prompt template notes:
 
 Diff context behavior:
   - Files matching `exclude_patterns` are removed.
-  - Files matching `exclude_paths` are removed.
   - If `include_only` is non-empty, only matching files are included.
   - The same filters apply to the `Staged files` list in the prompt.
-  - Context is truncated by `context.max_diff_lines`, then by
-    `context.max_diff_chars`.
+  - Context is truncated by `context.max_diff_chars`.
   - Default excludes cover common lockfiles, sourcemaps/minified assets, and
     generated protobuf / GORM gen / Connect RPC outputs.
 

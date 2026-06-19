@@ -52,61 +52,22 @@ AI 驱动的 Neovim git commit 信息生成器。
 
 ```lua
 require("ai-gitcommit").setup({
-  provider = "copilot", -- "openai" | "copilot"（默认: "copilot"）
+  provider = "copilot", -- 默认
+  -- 完整配置参考：:h ai-gitcommit-config
+})
+```
 
+OpenAI：
+
+```lua
+require("ai-gitcommit").setup({
+  provider = "openai",
   providers = {
     openai = {
       api_key = vim.env.OPENAI_API_KEY,
-      api_key_required = true,
-      api_key_header = "Authorization",
-      api_key_prefix = "Bearer ",
-      extra_headers = {},
-      stream_options = true,
       model = "gpt-4o-mini",
       endpoint = "https://api.openai.com/v1/chat/completions",
-      max_tokens = 500,
     },
-
-    copilot = {
-      -- model = nil → 自动从 /models 选最便宜可用模型
-      -- 若要固定某个模型，设置成字符串，如 "gpt-4o" 或 "claude-sonnet-4"
-      model = nil,
-      endpoint = "https://api.githubcopilot.com/chat/completions",
-      max_tokens = 500,
-    },
-  },
-
-  languages = { "Chinese", "English" },
-  prompt_template = nil, -- 字符串或 function(default_prompt) -> string
-  keymap = nil,
-  context = {
-    max_diff_lines = 500,
-    max_diff_chars = 15000,
-  },
-  filter = {
-    exclude_patterns = {
-      "%.lock$",
-      "package%-lock%.json$",
-      "yarn%.lock$",
-      "pnpm%-lock%.yaml$",
-      "%.min%.[jc]ss?$",
-      "%.map$",
-      "%.pb%.go$",
-      "_grpc%.pb%.go$",
-      "%.pb%.cc$",
-      "%.pb%.h$",
-      "_pb2%.py$",
-      "_pb2_grpc%.py$",
-      "%.gen%.go$",
-      "%.connect%.go$",
-      "_connect%.ts$",
-    },
-    exclude_paths = {},
-    include_only = nil,
-  },
-  auto = {
-    enabled = true,
-    debounce_ms = 450,
   },
 })
 ```
@@ -187,11 +148,10 @@ Diff:
 
 ## Diff 上下文行为
 
-- `filter.exclude_patterns` — 按文件名模式排除文件
-- `filter.exclude_paths` — 按路径模式排除文件
+- `filter.exclude_patterns` — 按 Lua 路径模式排除文件
 - `filter.include_only` — 非空时仅保留匹配的文件
 - 同一套过滤规则也会同时作用于 prompt 里的 `Staged files` 列表
-- 上下文先按 `context.max_diff_lines` 截断，再按 `context.max_diff_chars` 截断
+- 上下文按 `context.max_diff_chars` 截断
 - 默认排除规则覆盖常见 lockfile、sourcemap / minified 产物，以及 protobuf / GORM gen / Connect RPC 生成文件
 
 ## 生成行为

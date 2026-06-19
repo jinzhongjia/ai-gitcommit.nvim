@@ -9,18 +9,6 @@ T["setup"] = function()
 	context = require("ai-gitcommit.context")
 end
 
-T["should_exclude_file"] = new_set()
-
-T["should_exclude_file"]["returns true for matching pattern"] = function()
-	local patterns = { "%.lock$", "%.min%.js$" }
-	MiniTest.expect.equality(context.should_exclude_file("yarn.lock", patterns), true)
-	MiniTest.expect.equality(context.should_exclude_file("app.min.js", patterns), true)
-end
-
-T["should_exclude_file"]["returns false for non-matching pattern"] = function()
-	local patterns = { "%.lock$" }
-	MiniTest.expect.equality(context.should_exclude_file("main.lua", patterns), false)
-end
 
 T["filter_diff"] = new_set()
 
@@ -46,7 +34,7 @@ diff --git a/src/utils.lua b/src/utils.lua
 	MiniTest.expect.equality(filtered:find("utils.lua") ~= nil, true)
 end
 
-T["filter_diff"]["respects exclude_paths"] = function()
+T["filter_diff"]["respects path patterns in exclude_patterns"] = function()
 	local diff = [[
 diff --git a/src/main.lua b/src/main.lua
 +local x = 1
@@ -56,8 +44,7 @@ diff --git a/vendor/lib.lua b/vendor/lib.lua
 
 	local cfg = {
 		filter = {
-			exclude_patterns = {},
-			exclude_paths = { "^vendor/" },
+			exclude_patterns = { "^vendor/" },
 			include_only = nil,
 		},
 	}
@@ -78,7 +65,6 @@ diff --git a/tests/a.lua b/tests/a.lua
 	local cfg = {
 		filter = {
 			exclude_patterns = {},
-			exclude_paths = {},
 			include_only = { "^lua/" },
 		},
 	}
@@ -107,8 +93,7 @@ T["filter_files"]["keeps rename when old or new path matches"] = function()
 	}
 	local cfg = {
 		filter = {
-			exclude_patterns = {},
-			exclude_paths = { "^old/skip" },
+			exclude_patterns = { "^old/skip" },
 			include_only = { "^new/", "^old/path" },
 		},
 	}
@@ -135,13 +120,6 @@ T["truncate_diff"]["truncates at newline boundary"] = function()
 	MiniTest.expect.equality(truncated:find("truncated") ~= nil, true)
 end
 
-T["truncate_diff"]["truncates by max lines"] = function()
-	local diff = "line1\nline2\nline3\nline4"
-	local truncated = context.truncate_diff_lines(diff, 2)
-	MiniTest.expect.equality(truncated:find("line1", 1, true) ~= nil, true)
-	MiniTest.expect.equality(truncated:find("line3", 1, true), nil)
-	MiniTest.expect.equality(truncated:find("line limit", 1, true) ~= nil, true)
-end
 
 T["build_context"] = new_set()
 

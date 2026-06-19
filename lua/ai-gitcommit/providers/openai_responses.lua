@@ -1,4 +1,4 @@
-local stream = require("ai-gitcommit.stream")
+local openai_compat = require("ai-gitcommit.providers.openai_compat")
 
 local M = {}
 
@@ -24,28 +24,7 @@ function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 		max_output_tokens = config.max_tokens or 500,
 	}
 
-	local headers = opts.build_headers(config)
-	if headers["Content-Type"] == nil then
-		headers["Content-Type"] = "application/json"
-	end
-
-	for key, value in pairs(config.extra_headers or {}) do
-		headers[key] = value
-	end
-
-	local error_cb = on_error
-	if opts.map_error then
-		error_cb = function(err)
-			on_error(opts.map_error(err))
-		end
-	end
-
-	return stream.request({
-		url = config.endpoint,
-		method = "POST",
-		headers = headers,
-		body = body,
-	}, function(chunk)
+	return openai_compat.request(config, opts, body, function(chunk)
 		-- Reference event schema:
 		-- https://platform.openai.com/docs/api-reference/responses-streaming
 		-- response.completed is the terminator; text was streamed via deltas.
@@ -55,7 +34,7 @@ function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 				on_chunk(delta)
 			end
 		end
-	end, on_done, error_cb)
+	end, on_done, on_error)
 end
 
 return M

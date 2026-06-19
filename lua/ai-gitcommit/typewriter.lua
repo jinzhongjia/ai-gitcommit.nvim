@@ -22,7 +22,6 @@ end
 ---@field private displayed string[]
 ---@field private timer userdata?
 ---@field private bufnr number
----@field private first_comment_line number
 ---@field private interval_ms number
 ---@field private chars_per_tick number
 ---@field private running boolean
@@ -46,7 +45,6 @@ end
 
 ---@class AIGitCommit.TypewriterOpts
 ---@field bufnr number
----@field first_comment_line number
 ---@field interval_ms? number
 ---@field chars_per_tick? number
 ---@field before_update? fun(): boolean
@@ -61,7 +59,6 @@ function M.new(opts)
 		displayed = { "" },
 		timer = nil,
 		bufnr = opts.bufnr,
-		first_comment_line = opts.first_comment_line,
 		interval_ms = opts.interval_ms or 12,
 		chars_per_tick = opts.chars_per_tick or 4,
 		running = false,
@@ -206,39 +203,6 @@ function M:_update_buffer()
 	end
 end
 
----@return nil
-function M:flush()
-	if self.before_update and not self.before_update() then
-		self.running = false
-		return
-	end
-
-	self.running = false
-	if self.timer then
-		cancel_timer(self.timer)
-		self.timer = nil
-	end
-
-	for _, chunk in ipairs(self.queue) do
-		local pos = 1
-		while pos <= #chunk do
-			local byte = chunk:byte(pos)
-			local len = utf8_char_length(byte)
-			local char = chunk:sub(pos, pos + len - 1)
-			if char == "\n" then
-				table.insert(self.displayed, "")
-			else
-				local last_idx = #self.displayed
-				self.displayed[last_idx] = self.displayed[last_idx] .. char
-			end
-			pos = pos + len
-		end
-	end
-	self.queue = {}
-	self.queue_len = 0
-
-	self:_update_buffer()
-end
 
 ---@return nil
 function M:stop()

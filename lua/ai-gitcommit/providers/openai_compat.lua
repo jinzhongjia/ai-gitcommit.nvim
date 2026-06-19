@@ -17,27 +17,14 @@ local function should_include_stream_options(config, default_stream_options)
 	return default_stream_options ~= false
 end
 
----@param prompt string
 ---@param config AIGitCommit.ProviderConfig
 ---@param opts AIGitCommit.OpenAICompatOpts
----@param on_chunk fun(content: string)
+---@param body table
+---@param on_stream_chunk fun(chunk: table)
 ---@param on_done fun()
 ---@param on_error fun(err: string)
 ---@return AIGitCommit.StreamHandle?
-function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
-	local body = {
-		model = config.model,
-		max_tokens = config.max_tokens or 500,
-		messages = {
-			{ role = "user", content = prompt },
-		},
-		stream = true,
-	}
-
-	if should_include_stream_options(config, opts.default_stream_options) then
-		body.stream_options = { include_usage = true }
-	end
-
+function M.request(config, opts, body, on_stream_chunk, on_done, on_error)
 	local headers = opts.build_headers(config)
 	if headers["Content-Type"] == nil then
 		headers["Content-Type"] = "application/json"
@@ -59,14 +46,38 @@ function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 		method = "POST",
 		headers = headers,
 		body = body,
-	}, function(chunk)
+	}, on_stream_chunk, on_done, error_cb)
+end
+
+---@param prompt string
+---@param config AIGitCommit.ProviderConfig
+---@param opts AIGitCommit.OpenAICompatOpts
+---@param on_chunk fun(content: string)
+---@param on_done fun()
+---@param on_error fun(err: string)
+---@return AIGitCommit.StreamHandle?
+function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
+	local body = {
+		model = config.model,
+		max_tokens = config.max_tokens or 500,
+		messages = {
+			{ role = "user", content = prompt },
+		},
+		stream = true,
+	}
+
+	if should_include_stream_options(config, opts.default_stream_options) then
+		body.stream_options = { include_usage = true }
+	end
+
+	return M.request(config, opts, body, function(chunk)
 		if chunk.choices and chunk.choices[1] and chunk.choices[1].delta then
 			local content = chunk.choices[1].delta.content
 			if type(content) == "string" and content ~= "" then
 				on_chunk(content)
 			end
 		end
-	end, on_done, error_cb)
+	end, on_done, on_error)
 end
 
 return M

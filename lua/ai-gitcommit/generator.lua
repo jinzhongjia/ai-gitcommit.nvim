@@ -293,10 +293,8 @@ function M.run(language, extra_context, bufnr, silent)
 				return
 			end
 
-			local first_comment = buffer.find_first_comment_line(bufnr)
 			tw = typewriter.new({
 				bufnr = bufnr,
-				first_comment_line = first_comment,
 				interval_ms = 12,
 				chars_per_tick = 4,
 				before_update = function()

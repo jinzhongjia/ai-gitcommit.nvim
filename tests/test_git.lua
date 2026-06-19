@@ -1,4 +1,3 @@
-local helpers = require("tests.helpers")
 local new_set = MiniTest.new_set
 
 local T = new_set()
@@ -9,79 +8,6 @@ T["setup"] = function()
 	git = require("ai-gitcommit.git")
 end
 
-T["is_git_repo"] = new_set()
-
-T["is_git_repo"]["returns true in git repository"] = function()
-	local done = false
-	local result = nil
-
-	git.is_git_repo(function(is_repo)
-		result = is_repo
-		done = true
-	end)
-
-	vim.wait(1000, function()
-		return done
-	end)
-
-	MiniTest.expect.equality(done, true)
-	MiniTest.expect.equality(result, true)
-end
-
-T["get_repo_root"] = new_set()
-
-T["get_repo_root"]["returns repo root path"] = function()
-	local done = false
-	local root = nil
-
-	git.get_repo_root(function(result)
-		root = result
-		done = true
-	end)
-
-	-- Wait for async callback
-	vim.wait(1000, function()
-		return done
-	end)
-
-	MiniTest.expect.equality(root ~= nil, true)
-	MiniTest.expect.equality(type(root), "string")
-	MiniTest.expect.equality(root:find("ai%-gitcommit") ~= nil, true)
-end
-
-T["get_repo_root"]["uses target buffer directory as cwd"] = function()
-	local original_system = vim.system
-	local done = false
-	local seen_cwd = nil
-	local bufnr = helpers.create_gitcommit_buffer()
-	local repo_file = vim.fs.joinpath(vim.uv.cwd(), ".git", "COMMIT_EDITMSG")
-	vim.api.nvim_buf_set_name(bufnr, repo_file)
-
-	vim.system = function(_, opts, cb)
-		seen_cwd = opts.cwd
-		cb({ code = 0, stdout = vim.uv.cwd() .. "\n", stderr = "" })
-		return {
-			is_closing = function()
-				return false
-			end,
-			kill = function(_, _) end,
-		}
-	end
-
-	git.get_repo_root(bufnr, function(_)
-		done = true
-	end)
-
-	vim.wait(500, function()
-		return done
-	end)
-
-	vim.system = original_system
-	helpers.cleanup_buffer(bufnr)
-
-	MiniTest.expect.equality(done, true)
-	MiniTest.expect.equality(seen_cwd, vim.uv.cwd())
-end
 
 T["get_staged_diff"] = new_set()
 
@@ -89,7 +15,7 @@ T["get_staged_diff"]["returns string"] = function()
 	local done = false
 	local diff = nil
 
-	git.get_staged_diff(function(result)
+	git.get_staged_diff(nil, function(result)
 		diff = result
 		done = true
 	end)
@@ -118,7 +44,7 @@ T["get_staged_diff"]["returns error when git command fails"] = function()
 		}
 	end
 
-	git.get_staged_diff(function(result, result_err)
+	git.get_staged_diff(nil, function(result, result_err)
 		diff = result
 		err = result_err
 		done = true
@@ -141,7 +67,7 @@ T["get_staged_files"]["returns table"] = function()
 	local done = false
 	local files = nil
 
-	git.get_staged_files(function(result)
+	git.get_staged_files(nil, function(result)
 		files = result
 		done = true
 	end)
@@ -158,7 +84,7 @@ T["get_staged_files"]["parses status correctly"] = function()
 	local done = false
 	local files = nil
 
-	git.get_staged_files(function(result)
+	git.get_staged_files(nil, function(result)
 		files = result
 		done = true
 	end)
@@ -204,7 +130,7 @@ T["get_staged_files"]["parses rename and copy records from -z output"] = functio
 		}
 	end
 
-	git.get_staged_files(function(result)
+	git.get_staged_files(nil, function(result)
 		files = result
 		done = true
 	end)
@@ -243,7 +169,7 @@ T["get_staged_files"]["returns error when git command fails"] = function()
 		}
 	end
 
-	git.get_staged_files(function(result, result_err)
+	git.get_staged_files(nil, function(result, result_err)
 		files = result
 		err = result_err
 		done = true

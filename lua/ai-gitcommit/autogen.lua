@@ -6,12 +6,6 @@ local M = {}
 
 local AUTOGEN_GROUP = vim.api.nvim_create_augroup("AIGitCommitAutogen", { clear = true })
 
----@param language string
----@param bufnr integer
----@return nil
-local function run_generator(language, bufnr)
-	require("ai-gitcommit.generator").run(language, nil, bufnr, false)
-end
 
 ---@param bufnr integer
 ---@param debounce_ms integer
@@ -43,7 +37,7 @@ local function schedule_autogen(bufnr, debounce_ms)
 		end
 
 		if #languages == 1 then
-			run_generator(languages[1], bufnr)
+			require("ai-gitcommit.generator").run(languages[1], nil, bufnr, false)
 			return
 		end
 
@@ -52,7 +46,7 @@ local function schedule_autogen(bufnr, debounce_ms)
 				return
 			end
 
-			run_generator(choice, bufnr)
+			require("ai-gitcommit.generator").run(choice, nil, bufnr, false)
 		end)
 	end, debounce_ms)
 end
