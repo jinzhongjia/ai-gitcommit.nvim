@@ -1,3 +1,4 @@
+local buffer = require("ai-gitcommit.buffer")
 local buffer_state = require("ai-gitcommit.buffer_state")
 local config = require("ai-gitcommit.config")
 local providers = require("ai-gitcommit.providers")
@@ -13,14 +14,19 @@ local AUTOGEN_GROUP = vim.api.nvim_create_augroup("AIGitCommitAutogen", { clear 
 local function schedule_autogen(bufnr, debounce_ms)
 	local state = buffer_state.get(bufnr)
 	local expected_changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+	local expected_message = buffer.get_existing_message(bufnr)
 
 	---@return boolean
 	local function can_generate()
 		return vim.api.nvim_buf_is_valid(bufnr)
 			and vim.api.nvim_buf_is_loaded(bufnr)
-			and vim.api.nvim_buf_get_changedtick(bufnr) == expected_changedtick
 			and not state.generated
 			and not state.generating
+			-- Commit editors can insert help comments after FileType without changing the message.
+			and (
+				vim.api.nvim_buf_get_changedtick(bufnr) == expected_changedtick
+				or buffer.get_existing_message(bufnr) == expected_message
+			)
 	end
 
 	buffer_state.stop_timer(bufnr)
@@ -76,6 +82,13 @@ function M.setup(auto_cfg)
 			schedule_autogen(args.buf, debounce_ms)
 		end,
 	})
+
+	-- FileType may have already fired before lazy loading or manual setup.
+	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_loaded(bufnr) and vim.bo[bufnr].filetype == "gitcommit" then
+			schedule_autogen(bufnr, debounce_ms)
+		end
+	end
 end
 
 return M

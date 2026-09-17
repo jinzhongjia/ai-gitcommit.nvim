@@ -161,9 +161,10 @@ Diff:
 - `:AICommit` 只能在 `gitcommit` buffer 中使用
 - 默认基于已暂存的改动生成
 - 在 `git commit --amend` 场景下，如果当前 buffer 已有旧 message 且没有新的 staged changes，会回退到当前 `HEAD` commit 的 diff 作为生成上下文
-- 当配置了多个 `languages` 时，会弹出语言选择器
+- 当配置了多个 `languages` 时，会弹出语言选择器；只有一种语言时直接生成，不会额外询问是否生成
 - 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用，且 commit message 区域仍未被手动修改
-- 在自动生成的防抖等待或语言选择期间修改 buffer，会取消本次自动生成
+- 插件初始化时也会为已加载的 `gitcommit` buffer 调度自动生成，避免在 `FileType` 之后加载插件时漏触发
+- 在自动生成的防抖等待或语言选择期间修改 commit message 正文，会取消本次自动生成；仅更新注释区（如 Neogit 插入帮助信息）不会取消
 - 流式写入保留原有 Git 注释，不会因生成文本包含注释样式的行而重复插入内容
 - Responses API 返回失败或不完整结果时会报错，不会将本次生成标记为成功
 

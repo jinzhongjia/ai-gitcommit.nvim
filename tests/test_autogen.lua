@@ -122,4 +122,78 @@ T["preserves edits made while the language picker is open"] = function()
 	MiniTest.expect.equality(lines, { "user draft" })
 end
 
+T["offers generation when setup follows the gitcommit FileType event"] = function()
+	local original_select = vim.ui.select
+	local autogen, original_generator, original_providers = setup_autogen_mocks()
+	local bufnr = helpers.create_gitcommit_buffer()
+	local choices
+	local on_choice
+	require("ai-gitcommit.config").setup({ languages = { "English", "中文" } })
+	package.loaded["ai-gitcommit.generator"] = {
+		run = function(_, _, target)
+			vim.api.nvim_buf_set_lines(target, 0, -1, false, { "generated message" })
+		end,
+	}
+	vim.ui.select = function(items, _, callback)
+		choices = items
+		on_choice = callback
+	end
+
+	autogen.setup({ enabled = true, debounce_ms = 1 })
+	vim.wait(200, function()
+		return on_choice ~= nil
+	end, 5)
+	if on_choice then
+		on_choice("English")
+	end
+	local lines = vim.api.nvim_buf_get_lines(bufnr, 0, -1, false)
+
+	autogen.setup({ enabled = false })
+	vim.ui.select = original_select
+	package.loaded["ai-gitcommit.generator"] = original_generator
+	package.loaded["ai-gitcommit.providers"] = original_providers
+	require("ai-gitcommit.config").setup({ languages = { "English" } })
+	require("ai-gitcommit.buffer_state").clear(bufnr)
+	helpers.cleanup_buffer(bufnr)
+
+	MiniTest.expect.equality(choices, { "English", "中文" })
+	MiniTest.expect.equality(lines, { "generated message" })
+end
+
+T["offers generation after the editor inserts help comments"] = function()
+	local original_defer_fn = vim.defer_fn
+	local original_select = vim.ui.select
+	local pending_cb
+	local choices
+	local autogen, original_generator, original_providers = setup_autogen_mocks()
+	require("ai-gitcommit.config").setup({ languages = { "English", "中文" } })
+	vim.defer_fn = function(fn, _)
+		pending_cb = fn
+	end
+	vim.ui.select = function(items, _, callback)
+		choices = items
+		callback(nil)
+	end
+
+	local bufnr = helpers.create_gitcommit_buffer()
+	vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, { "", "#", "# staged changes" })
+	autogen.setup({ enabled = true, debounce_ms = 1 })
+	vim.api.nvim_exec_autocmds("FileType", { buffer = bufnr })
+	vim.api.nvim_buf_set_lines(bufnr, 1, 1, false, { "# Commands:", "#   q Close", "#   <c-c> Submit" })
+	pending_cb()
+	local message = require("ai-gitcommit.buffer").get_existing_message(bufnr)
+
+	autogen.setup({ enabled = false })
+	vim.defer_fn = original_defer_fn
+	vim.ui.select = original_select
+	package.loaded["ai-gitcommit.generator"] = original_generator
+	package.loaded["ai-gitcommit.providers"] = original_providers
+	require("ai-gitcommit.config").setup({ languages = { "English" } })
+	require("ai-gitcommit.buffer_state").clear(bufnr)
+	helpers.cleanup_buffer(bufnr)
+
+	MiniTest.expect.equality(choices, { "English", "中文" })
+	MiniTest.expect.equality(message, "")
+end
+
 return T

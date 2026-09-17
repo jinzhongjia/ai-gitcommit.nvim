@@ -162,9 +162,10 @@ Output only the commit message, no explanation.
 - `:AICommit` works only in a `gitcommit` buffer
 - Generation uses staged changes by default
 - In `git commit --amend` buffers with an existing message and no staged changes, generation falls back to the current `HEAD` commit diff
-- When multiple `languages` are configured, a language picker is shown
+- When multiple `languages` are configured, a language picker is shown; with one language, generation starts directly without a confirmation prompt
 - When `auto.enabled = true`, generation starts automatically on `FileType gitcommit` after `debounce_ms`, but only if provider credentials are already available and the commit message area is still untouched
-- Editing the buffer during the debounce delay or language selection cancels automatic generation
+- Setup also schedules automatic generation for already-loaded `gitcommit` buffers, so loading the plugin after `FileType` does not miss them
+- Editing the commit message during the debounce delay or language selection cancels automatic generation; comment-only updates, such as Neogit's help text, do not
 - Streaming preserves the original Git comments without duplicating generated comment-like lines
 - Failed or incomplete Responses API streams report an error instead of marking generation successful
 
