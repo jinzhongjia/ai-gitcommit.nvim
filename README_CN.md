@@ -129,6 +129,7 @@ providers = {
 占位符：`{language}`、`{extra_context}`、`{staged_files}`、`{diff}`
 
 `prompt_template` 可以是字符串，也可以是接收默认 prompt 并返回新字符串的函数。
+占位符值按原文插入，其中出现的占位符样式文本不会再次展开。
 
 ```lua
 prompt_template = [[
@@ -151,6 +152,7 @@ Diff:
 - `filter.exclude_patterns` — 按 Lua 路径模式排除文件
 - `filter.include_only` — 非空时仅保留匹配的文件
 - 同一套过滤规则也会同时作用于 prompt 里的 `Staged files` 列表
+- 过滤规则匹配解码后的 Git 路径（包括被引号包裹的 Unicode 路径）；Git 的颜色、路径前缀和外部 diff 配置不会影响补丁上下文
 - 上下文按 `context.max_diff_chars` 截断
 - 默认排除规则覆盖常见 lockfile、sourcemap / minified 产物，以及 protobuf / GORM gen / Connect RPC 生成文件
 
@@ -161,6 +163,9 @@ Diff:
 - 在 `git commit --amend` 场景下，如果当前 buffer 已有旧 message 且没有新的 staged changes，会回退到当前 `HEAD` commit 的 diff 作为生成上下文
 - 当配置了多个 `languages` 时，会弹出语言选择器
 - 当 `auto.enabled = true` 时，会在 `FileType gitcommit` 后等待 `debounce_ms` 自动触发生成，但前提是 provider 凭证已经可用，且 commit message 区域仍未被手动修改
+- 在自动生成的防抖等待或语言选择期间修改 buffer，会取消本次自动生成
+- 流式写入保留原有 Git 注释，不会因生成文本包含注释样式的行而重复插入内容
+- Responses API 返回失败或不完整结果时会报错，不会将本次生成标记为成功
 
 ## License
 

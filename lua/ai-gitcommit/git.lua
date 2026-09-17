@@ -89,27 +89,35 @@ end
 ---@param bufnr integer?
 ---@param callback fun(diff: string, err: string?)
 function M.get_staged_diff(bufnr, callback)
-	run_git({ "diff", "--cached" }, { bufnr = bufnr }, function(stdout, code, stderr)
-		if code ~= 0 then
-			callback("", build_git_error(stdout, stderr, "Failed to get staged diff"))
-			return
-		end
+	run_git(
+		{ "diff", "--cached", "--no-ext-diff", "--no-color", "--src-prefix=a/", "--dst-prefix=b/" },
+		{ bufnr = bufnr },
+		function(stdout, code, stderr)
+			if code ~= 0 then
+				callback("", build_git_error(stdout, stderr, "Failed to get staged diff"))
+				return
+			end
 
-		callback(stdout, nil)
-	end)
+			callback(stdout, nil)
+		end
+	)
 end
 
 ---@param bufnr integer?
 ---@param callback fun(diff: string, err: string?)
 function M.get_head_diff(bufnr, callback)
-	run_git({ "show", "--format=", "--no-ext-diff", "HEAD" }, { bufnr = bufnr }, function(stdout, code, stderr)
-		if code ~= 0 then
-			callback("", build_git_error(stdout, stderr, "Failed to get HEAD diff"))
-			return
-		end
+	run_git(
+		{ "show", "--format=", "--no-ext-diff", "--no-color", "--src-prefix=a/", "--dst-prefix=b/", "HEAD" },
+		{ bufnr = bufnr },
+		function(stdout, code, stderr)
+			if code ~= 0 then
+				callback("", build_git_error(stdout, stderr, "Failed to get HEAD diff"))
+				return
+			end
 
-		callback(stdout, nil)
-	end)
+			callback(stdout, nil)
+		end
+	)
 end
 
 ---@class AIGitCommit.StagedFile

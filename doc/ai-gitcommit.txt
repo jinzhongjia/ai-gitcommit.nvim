@@ -114,11 +114,14 @@ Custom prompt placeholders:
 Prompt template notes:
   - `prompt_template` may be a string, or a function that receives the
     default prompt and returns a replacement string.
+  - Placeholder values are inserted literally and are not expanded again.
 
 Diff context behavior:
   - Files matching `exclude_patterns` are removed.
   - If `include_only` is non-empty, only matching files are included.
   - The same filters apply to the `Staged files` list in the prompt.
+  - Filters match decoded Git paths, including quoted Unicode paths.
+    Git color, prefix, and external-diff settings do not affect patch context.
   - Context is truncated by `context.max_diff_chars`.
   - Default excludes cover common lockfiles, sourcemaps/minified assets, and
     generated protobuf / GORM gen / Connect RPC outputs.
@@ -132,6 +135,12 @@ Generation behavior:
   - When `auto.enabled = true`, generation starts automatically on
     `FileType gitcommit` after `debounce_ms`, but only if provider
     credentials are already available and the message area is still untouched.
+  - Editing the buffer during the debounce delay or language selection cancels
+    automatic generation.
+  - Streaming preserves the original Git comments without duplicating
+    generated comment-like lines.
+  - Failed or incomplete Responses API streams report an error instead of
+    marking generation successful.
 
 Provider config validation:
   - providers.openai.model must be non-empty string

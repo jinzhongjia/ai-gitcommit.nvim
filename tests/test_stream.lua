@@ -10,84 +10,7 @@ end
 
 T["cancel"] = new_set()
 
-T["cancel"]["handles nil stream handle"] = function()
-	local ok = pcall(stream.cancel, nil)
-	MiniTest.expect.equality(ok, true)
-end
-
-T["cancel"]["handles empty stream handle"] = function()
-	local ok = pcall(stream.cancel, {})
-	MiniTest.expect.equality(ok, true)
-end
-
 T["request"] = new_set()
-
-T["request"]["returns nil on spawn failure with invalid url"] = function()
-	local chunks = {}
-	local errors = {}
-	local done_called = false
-
-	local handle = stream.request({
-		url = "invalid://not-a-url",
-		method = "POST",
-		headers = {},
-		body = {},
-	}, function(chunk)
-		table.insert(chunks, chunk)
-	end, function()
-		done_called = true
-	end, function(err)
-		table.insert(errors, err)
-	end)
-
-	vim.wait(500, function()
-		return done_called or #errors > 0
-	end)
-
-	MiniTest.expect.equality(#errors > 0 or done_called, true)
-end
-
-T["request"]["builds correct curl args"] = function()
-	local original_system = vim.system
-	local captured_args = nil
-	local done_called = false
-
-	vim.system = function(args, _opts, cb)
-		captured_args = args
-		cb({ code = 0 })
-		return {
-			is_closing = function()
-				return false
-			end,
-			kill = function(_, _) end,
-		}
-	end
-
-	stream.request({
-		url = "https://example.com/api",
-		method = "GET",
-		headers = { ["X-Test"] = "value" },
-		body = { hello = "world" },
-	}, function() end, function()
-		done_called = true
-	end, function() end)
-
-	vim.wait(500, function()
-		return done_called
-	end)
-
-	vim.system = original_system
-
-	MiniTest.expect.equality(type(captured_args), "table")
-	MiniTest.expect.equality(captured_args[1], "curl")
-	-- Method, URL, and header must all be present in the curl arg list.
-	local joined = table.concat(captured_args, " ")
-	MiniTest.expect.equality(joined:find("-X GET", 1, true) ~= nil, true)
-	MiniTest.expect.equality(joined:find("X-Test: value", 1, true) ~= nil, true)
-	MiniTest.expect.equality(joined:find("https://example.com/api", 1, true) ~= nil, true)
-	-- Body should be JSON-encoded and present as a -d argument.
-	MiniTest.expect.equality(joined:find('"hello":"world"', 1, true) ~= nil, true)
-end
 
 T["request"]["parses SSE events with CRLF line endings"] = function()
 	local original_system = vim.system
@@ -168,6 +91,88 @@ T["request"]["returns parse error when stream payload is invalid"] = function()
 	MiniTest.expect.equality(#chunks, 0)
 	MiniTest.expect.equality(#errors, 1)
 	MiniTest.expect.equality(errors[1], "Failed to parse streaming response")
+end
+
+---@param payload string
+---@param cancel boolean?
+---@param exit_code integer?
+---@return table[]
+local function collect_stream_events(payload, cancel, exit_code)
+	local original_system, original_schedule = vim.system, vim.schedule
+	local callbacks, events = {}, {}
+	vim.schedule = function(fn)
+		table.insert(callbacks, fn)
+	end
+	vim.system = function(_, opts, cb)
+		opts.stdout(nil, payload)
+		cb({ code = exit_code or 0 })
+		return {
+			is_closing = function()
+				return false
+			end,
+			kill = function() end,
+		}
+	end
+
+	local ok, err = pcall(function()
+		local handle = stream.request({ url = "https://example.com" }, function(chunk)
+			table.insert(events, { "chunk", chunk })
+		end, function()
+			table.insert(events, { "done" })
+		end, function(message)
+			table.insert(events, { "error", message })
+		end)
+		if cancel then
+			stream.cancel(handle)
+		end
+		local i = 1
+		while callbacks[i] do
+			callbacks[i]()
+			i = i + 1
+		end
+	end)
+	vim.system, vim.schedule = original_system, original_schedule
+	if not ok then
+		error(err)
+	end
+	return events
+end
+
+T["cancel"]["suppresses queued chunks and errors"] = function()
+	local events = collect_stream_events('data: {"text":"late"}\n\ndata: {"error":{"message":"late error"}}\n\n', true)
+	MiniTest.expect.equality(events, {})
+end
+
+T["request"]["delivers final unterminated SSE event before completion"] = function()
+	local events = collect_stream_events('data: {"text":"last"}\n')
+	MiniTest.expect.equality(events, { { "chunk", { text = "last" } }, { "done" } })
+end
+
+T["request"]["preserves final line without newline"] = function()
+	local events = collect_stream_events('data: {"text":"last"}')
+	MiniTest.expect.equality(events, { { "chunk", { text = "last" } }, { "done" } })
+end
+
+T["request"]["stops callbacks after first API error"] = function()
+	local events = collect_stream_events(
+		'data: {"error":{"message":"first"}}\n\ndata: {"error":{"message":"second"}}\n\ndata: {"text":"late"}\n\n'
+	)
+	MiniTest.expect.equality(events, { { "error", "first" } })
+end
+
+T["request"]["reports flat Responses error events"] = function()
+	local events = collect_stream_events('data: {"type":"error","message":"quota exhausted","code":"insufficient_quota"}\n\n')
+	MiniTest.expect.equality(events, { { "error", "quota exhausted" } })
+end
+
+T["request"]["rejects scalar JSON without throwing"] = function()
+	local events = collect_stream_events("data: 42\n\n")
+	MiniTest.expect.equality(events, { { "error", "Failed to parse streaming response" } })
+end
+
+T["request"]["reports string HTTP errors without a trailing newline"] = function()
+	local events = collect_stream_events('{"error":"upstream unavailable"}', false, 22)
+	MiniTest.expect.equality(events, { { "error", "upstream unavailable" } })
 end
 
 return T

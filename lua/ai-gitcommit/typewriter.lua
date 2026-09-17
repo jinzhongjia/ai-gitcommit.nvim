@@ -21,6 +21,7 @@ end
 ---@field private queue_len number
 ---@field private displayed string[]
 ---@field private timer userdata?
+---@field private message_line_count integer?
 ---@field private bufnr number
 ---@field private interval_ms number
 ---@field private chars_per_tick number
@@ -58,6 +59,7 @@ function M.new(opts)
 		queue_len = 0,
 		displayed = { "" },
 		timer = nil,
+		message_line_count = nil,
 		bufnr = opts.bufnr,
 		interval_ms = opts.interval_ms or 12,
 		chars_per_tick = opts.chars_per_tick or 4,
@@ -177,10 +179,8 @@ function M:_append_chars(chars, count)
 	return true
 end
 
--- Every call re-detects where the comment lines start via find_first_comment_line,
--- then replaces only [0, first_comment - 1). This keeps git comments untouched
--- regardless of how the message area grows or shrinks across ticks.
--- DO NOT cache first_comment_line — the position shifts as displayed content changes length.
+-- Detect the original comment boundary only on the first write. Subsequent
+-- writes replace exactly our previous output, including comment-like text.
 ---@return nil
 function M:_update_buffer()
 	if not is_buffer_valid(self.bufnr) then
@@ -192,8 +192,9 @@ function M:_update_buffer()
 		table.insert(self.displayed, "")
 	end
 
-	local first_comment = buffer.find_first_comment_line(self.bufnr)
-	vim.api.nvim_buf_set_lines(self.bufnr, 0, first_comment - 1, false, self.displayed)
+	local message_end = self.message_line_count or (buffer.find_first_comment_line(self.bufnr) - 1)
+	vim.api.nvim_buf_set_lines(self.bufnr, 0, message_end, false, self.displayed)
+	self.message_line_count = #self.displayed
 	if self.on_update then
 		self.on_update()
 	end
@@ -214,6 +215,7 @@ function M:stop()
 	self.queue = {}
 	self.queue_len = 0
 	self.displayed = { "" }
+	self.message_line_count = nil
 	self.done_callback = nil
 end
 

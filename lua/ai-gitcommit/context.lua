@@ -1,5 +1,8 @@
 local M = {}
 
+---@type table<string, string>
+local path_escapes = { a = "\a", b = "\b", t = "\t", n = "\n", v = "\v", f = "\f", r = "\r" }
+
 ---@param file AIGitCommit.StagedFile
 ---@return string[]
 local function file_candidates(file)
@@ -93,6 +96,61 @@ function M.filter_files(files, config)
 	return filtered
 end
 
+---@param value string
+---@return string?
+---@return integer? next_index
+local function read_quoted_path(value)
+	local result = {}
+	local i = 2
+	while i <= #value do
+		local char = value:sub(i, i)
+		if char == '"' then
+			return table.concat(result), i + 1
+		elseif char == "\\" then
+			local octal = value:sub(i + 1, i + 3)
+			if octal:match("^[0-7][0-7][0-7]$") then
+				result[#result + 1] = string.char(tonumber(octal, 8))
+				i = i + 4
+			else
+				local escaped = value:sub(i + 1, i + 1)
+				result[#result + 1] = path_escapes[escaped] or escaped
+				i = i + 2
+			end
+		else
+			result[#result + 1] = char
+			i = i + 1
+		end
+	end
+end
+
+---@param line string
+---@return string?
+---@return string?
+local function diff_paths(line)
+	local header = line:match("^diff %-%-git (.*)$")
+	if not header then
+		return
+	end
+
+	local old_path, new_path
+	if header:sub(1, 1) == '"' then
+		local next_index
+		old_path, next_index = read_quoted_path(header)
+		new_path = next_index and header:sub(next_index + 1) or nil
+	else
+		old_path, new_path = header:match("^(a/.-) (b/.*)$")
+		if not old_path then
+			old_path, new_path = header:match('^(a/.-) ("b/.*)$')
+		end
+	end
+	if new_path and new_path:sub(1, 1) == '"' then
+		new_path = read_quoted_path(new_path)
+	end
+	if old_path and new_path then
+		return old_path:match("^a/(.*)$"), new_path:match("^b/(.*)$")
+	end
+end
+
 ---@param diff string
 ---@param config AIGitCommit.Config
 ---@return string
@@ -102,7 +160,7 @@ function M.filter_diff(diff, config)
 	local skip_file = false
 
 	for _, line in ipairs(lines) do
-		local old_file, new_file = line:match("^diff %-%-git a/(.-) b/(.-)$")
+		local old_file, new_file = diff_paths(line)
 		if old_file and new_file then
 			skip_file = not (
 				should_keep_file(old_file, config)

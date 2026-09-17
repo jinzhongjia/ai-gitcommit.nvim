@@ -12,17 +12,23 @@ local AUTOGEN_GROUP = vim.api.nvim_create_augroup("AIGitCommitAutogen", { clear 
 ---@return nil
 local function schedule_autogen(bufnr, debounce_ms)
 	local state = buffer_state.get(bufnr)
+	local expected_changedtick = vim.api.nvim_buf_get_changedtick(bufnr)
+
+	---@return boolean
+	local function can_generate()
+		return vim.api.nvim_buf_is_valid(bufnr)
+			and vim.api.nvim_buf_is_loaded(bufnr)
+			and vim.api.nvim_buf_get_changedtick(bufnr) == expected_changedtick
+			and not state.generated
+			and not state.generating
+	end
 
 	buffer_state.stop_timer(bufnr)
 
 	state.timer = vim.defer_fn(function()
 		state.timer = nil
 
-		if not vim.api.nvim_buf_is_valid(bufnr) then
-			return
-		end
-
-		if state.generated or state.generating then
+		if not can_generate() then
 			return
 		end
 
@@ -42,7 +48,7 @@ local function schedule_autogen(bufnr, debounce_ms)
 		end
 
 		vim.ui.select(languages, { prompt = "Select language:" }, function(choice)
-			if not choice then
+			if not choice or not can_generate() then
 				return
 			end
 

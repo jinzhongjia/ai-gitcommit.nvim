@@ -74,6 +74,36 @@ diff --git a/tests/a.lua b/tests/a.lua
 	MiniTest.expect.equality(filtered:find("tests/a.lua", 1, true), nil)
 end
 
+T["filter_diff"]["decodes Git quoted paths before applying filters"] = function()
+	local excluded = 'diff --git "a/vendor/caf\\303\\251.lua" "b/vendor/caf\\303\\251.lua"\n+excluded\n'
+	local kept = 'diff --git "a/src/line\\t\\"name.lua" "b/src/line\\t\\"name.lua"\n+kept\n'
+	local diff = excluded .. kept
+	local cfg = {
+		filter = {
+			exclude_patterns = { "^vendor/" },
+			include_only = { '^src/line\t"name%.lua$', "^vendor/" },
+		},
+	}
+
+	MiniTest.expect.equality(context.filter_diff(diff, cfg), kept)
+end
+
+T["filter_diff"]["resets filtering at a quoted header following an excluded file"] = function()
+	local excluded = "diff --git a/vendor/plain.lua b/vendor/plain.lua\n+excluded\n"
+	local kept = 'diff --git "a/caf\\303\\251.lua" "b/caf\\303\\251.lua"\n+kept\n'
+	local cfg = { filter = { exclude_patterns = { "^vendor/" }, include_only = { "^café%.lua$" } } }
+
+	MiniTest.expect.equality(context.filter_diff(excluded .. kept, cfg), kept)
+end
+
+T["filter_diff"]["handles renames with one quoted path"] = function()
+	local old_quoted = 'diff --git "a/old\\tname.lua" b/new.lua\n+old quoted\n'
+	local new_quoted = 'diff --git a/old.lua "b/new\\tname.lua"\n+new quoted\n'
+	local cfg = { filter = { include_only = { "^new\tname%.lua$" } } }
+
+	MiniTest.expect.equality(context.filter_diff(old_quoted .. new_quoted, cfg), new_quoted)
+end
+
 T["filter_files"] = new_set()
 
 T["filter_files"]["keeps rename when old or new path matches"] = function()

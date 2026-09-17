@@ -255,4 +255,79 @@ T["copilot generate"]["sends completion-only headers and payload"] = function()
 	MiniTest.expect.equality(captured.body.tools, nil)
 end
 
+T["responses generate"] = new_set()
+
+---@param chunks table[]
+---@return table[]
+local function collect_response_events(chunks)
+	local modules = {
+		"ai-gitcommit.stream",
+		"ai-gitcommit.providers.openai_compat",
+		"ai-gitcommit.providers.openai_responses",
+	}
+	local originals = {}
+	for _, name in ipairs(modules) do
+		originals[name] = package.loaded[name]
+		helpers.unload_module(name)
+	end
+	package.loaded["ai-gitcommit.stream"] = {
+		request = function(_, on_chunk, on_done)
+			for _, chunk in ipairs(chunks) do
+				on_chunk(chunk)
+			end
+			on_done()
+			return { system_obj = nil }
+		end,
+	}
+
+	local events = {}
+	local ok, err = pcall(function()
+		require("ai-gitcommit.providers.openai_responses").generate("hello", {
+			model = "test-model",
+			endpoint = "https://example.com/responses",
+		}, {
+			build_headers = function()
+				return {}
+			end,
+			map_error = function(message)
+				return "mapped: " .. message
+			end,
+		}, function(content)
+			table.insert(events, { "chunk", content })
+		end, function()
+			table.insert(events, { "done" })
+		end, function(message)
+			table.insert(events, { "error", message })
+		end)
+	end)
+	for _, name in ipairs(modules) do
+		package.loaded[name] = originals[name]
+	end
+	if not ok then
+		error(err)
+	end
+	return events
+end
+
+T["responses generate"]["reports failed response instead of completing"] = function()
+	local events = collect_response_events({
+		{ type = "response.output_text.delta", delta = "partial" },
+		{ type = "response.failed", response = { error = { message = "upstream unavailable" } } },
+		{ type = "response.output_text.delta", delta = "late" },
+		{ type = "response.failed", response = { error = { message = "duplicate" } } },
+	})
+	MiniTest.expect.equality(events, { { "chunk", "partial" }, { "error", "mapped: upstream unavailable" } })
+end
+
+T["responses generate"]["rejects incomplete response with its reason"] = function()
+	local events = collect_response_events({
+		{ type = "response.output_text.delta", delta = "truncated" },
+		{ type = "response.incomplete", response = { incomplete_details = { reason = "max_output_tokens" } } },
+	})
+	MiniTest.expect.equality(events, {
+		{ "chunk", "truncated" },
+		{ "error", "mapped: Response incomplete: max_output_tokens" },
+	})
+end
+
 return T

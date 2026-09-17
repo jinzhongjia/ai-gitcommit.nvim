@@ -43,24 +43,29 @@ function M.request(opts, on_chunk, on_done, on_error)
 
 	---@param chunk table
 	local function handle_chunk(chunk)
-		if chunk.type == "error" and chunk.error then
-			has_error = true
-			vim.schedule(function()
-				on_error(chunk.error.message or "API error")
-			end)
+		if has_error or (handle and handle.canceled) then
 			return
 		end
 
-		if chunk.error then
+		if chunk.type == "error" or chunk.error then
 			has_error = true
+			local err = chunk.error
+			local message = type(err) == "table" and err.message or err
+			if type(message) ~= "string" then
+				message = type(chunk.message) == "string" and chunk.message or "API error"
+			end
 			vim.schedule(function()
-				on_error(chunk.error.message or chunk.error or "API error")
+				if not handle.canceled then
+					on_error(message)
+				end
 			end)
 			return
 		end
 
 		vim.schedule(function()
-			on_chunk(chunk)
+			if not handle.canceled then
+				on_chunk(chunk)
+			end
 		end)
 	end
 
@@ -77,11 +82,30 @@ function M.request(opts, on_chunk, on_done, on_error)
 		end
 
 		local ok, chunk = pcall(vim.json.decode, payload)
-		if ok and chunk then
+		if ok and type(chunk) == "table" then
 			parsed_chunk_count = parsed_chunk_count + 1
 			handle_chunk(chunk)
 		else
 			decode_error_count = decode_error_count + 1
+		end
+	end
+
+	---@param line string
+	local function process_line(line)
+		line = line:gsub("\r$", "")
+		if line == "" then
+			flush_sse_event()
+		elseif line:match("^data:") then
+			local json_str = line:gsub("^data:%s?", "")
+			table.insert(sse_data_lines, json_str)
+		elseif line ~= "" and not line:match("^event:") then
+			local ok, chunk = pcall(vim.json.decode, line)
+			if ok and type(chunk) == "table" then
+				parsed_chunk_count = parsed_chunk_count + 1
+				handle_chunk(chunk)
+			else
+				decode_error_count = decode_error_count + 1
+			end
 		end
 	end
 
@@ -97,21 +121,7 @@ function M.request(opts, on_chunk, on_done, on_error)
 		stdout_buffer = lines[#lines]
 
 		for i = 1, #lines - 1 do
-			local line = lines[i]:gsub("\r$", "")
-			if line == "" then
-				flush_sse_event()
-			elseif line:match("^data:") then
-				local json_str = line:gsub("^data:%s?", "")
-				table.insert(sse_data_lines, json_str)
-			elseif line ~= "" and not line:match("^event:") then
-				local ok, chunk = pcall(vim.json.decode, line)
-				if ok and chunk then
-					parsed_chunk_count = parsed_chunk_count + 1
-					handle_chunk(chunk)
-				else
-					decode_error_count = decode_error_count + 1
-				end
-			end
+			process_line(lines[i])
 		end
 	end
 
@@ -126,13 +136,15 @@ function M.request(opts, on_chunk, on_done, on_error)
 		stdout = process_stdout,
 		stderr = process_stderr,
 	}, function(obj)
+		if stdout_buffer ~= "" then
+			process_line(stdout_buffer)
+			stdout_buffer = ""
+		end
+		flush_sse_event()
+
 		vim.schedule(function()
 			if handle.canceled then
 				return
-			end
-
-			if #sse_data_lines > 0 then
-				flush_sse_event()
 			end
 
 			if has_error then
@@ -149,8 +161,10 @@ function M.request(opts, on_chunk, on_done, on_error)
 			else
 				local stdout_full = table.concat(stdout_chunks, "")
 				local ok, data = pcall(vim.json.decode, stdout_full)
-				if ok and data and data.error then
-					on_error(data.error.message or "API error")
+				if ok and type(data) == "table" and data.error then
+					local err = data.error
+					local message = type(err) == "table" and err.message or err
+					on_error(type(message) == "string" and message or "API error")
 				elseif vim.trim(stdout_full) ~= "" then
 					on_error(vim.trim(stdout_full))
 				else

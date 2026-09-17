@@ -23,18 +23,43 @@ function M.generate(prompt, config, opts, on_chunk, on_done, on_error)
 		store = false,
 		max_output_tokens = config.max_tokens or 500,
 	}
+	local failed = false
+
+	---@param err string
+	local function fail(err)
+		if failed then
+			return
+		end
+		failed = true
+		on_error(err)
+	end
 
 	return openai_compat.request(config, opts, body, function(chunk)
-		-- Reference event schema:
-		-- https://platform.openai.com/docs/api-reference/responses-streaming
-		-- response.completed is the terminator; text was streamed via deltas.
-		if chunk.type == "response.output_text.delta" then
+		if failed then
+			return
+		end
+		if chunk.type == "response.failed" or chunk.type == "response.incomplete" then
+			local response = chunk.response or {}
+			local err = response.error
+			local message = type(err) == "table" and err.message or err
+			if type(message) ~= "string" then
+				local details = response.incomplete_details
+				local reason = type(details) == "table" and details.reason or nil
+				message = type(reason) == "string" and ("Response incomplete: " .. reason)
+					or "Response generation failed"
+			end
+			fail(opts.map_error and opts.map_error(message) or message)
+		elseif chunk.type == "response.output_text.delta" then
 			local delta = chunk.delta
 			if type(delta) == "string" and delta ~= "" then
 				on_chunk(delta)
 			end
 		end
-	end, on_done, on_error)
+	end, function()
+		if not failed then
+			on_done()
+		end
+	end, fail)
 end
 
 return M

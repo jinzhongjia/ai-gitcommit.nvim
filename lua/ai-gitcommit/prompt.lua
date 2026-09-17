@@ -63,18 +63,12 @@ function M.build(opts)
 		extra = string.format("Additional context from user: %s\n", opts.extra_context)
 	end
 
-	-- Escape % in replacement strings to prevent "invalid capture index" error
-	local function escape_replacement(s)
-		return (s:gsub("%%", "%%%%"))
-	end
-
-	return (
-		template
-			:gsub("{language}", escape_replacement(opts.language or "English"))
-			:gsub("{extra_context}", escape_replacement(extra))
-			:gsub("{staged_files}", escape_replacement(staged_files_str))
-			:gsub("{diff}", escape_replacement(opts.diff or ""))
-	)
+	return (template:gsub("{([%w_]+)}", {
+		language = opts.language or "English",
+		extra_context = extra,
+		staged_files = staged_files_str,
+		diff = opts.diff or "",
+	}))
 end
 
 return M

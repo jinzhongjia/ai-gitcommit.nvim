@@ -79,6 +79,22 @@ T["build"]["handles missing extra context"] = function()
 	MiniTest.expect.equality(result:find("Additional context") == nil, true)
 end
 
+T["build"]["preserves literal placeholders and percent signs in replacement values"] = function()
+	local result = prompt.build({
+		template = "{language}|{extra_context}|{staged_files}|{diff}|{unknown}",
+		language = "English",
+		extra_context = "Explain {diff} and {staged_files} at 100%",
+		files = { { status = "M", file = "{diff}%1.lua" } },
+		diff = "+{language} = '%1'",
+	})
+
+	MiniTest.expect.equality(
+		result,
+		"English|Additional context from user: Explain {diff} and {staged_files} at 100%\n"
+			.. "|  M  {diff}%1.lua\n|+{language} = '%1'|{unknown}"
+	)
+end
+
 T["default_template"] = new_set()
 
 T["default_template"]["exists"] = function()
